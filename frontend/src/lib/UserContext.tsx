@@ -23,6 +23,7 @@ interface UserContextType {
   user: User | null;
   loading: boolean;
   refreshUser: () => Promise<void>;
+  logout: () => void; // 🔄 Adicionada função de logout global
   isPro: boolean;
 }
 
@@ -31,6 +32,19 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const logout = useCallback(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    // Limpar cookies comuns de auth se existirem
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+    setUser(null);
+    window.location.href = '/auth/login';
+  }, []);
 
   const fetchUser = useCallback(async () => {
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -56,10 +70,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
-  const isPro = user?.subscription_status === 'active';
+  const isPro = user?.subscription_status === 'active' || user?.subscription_status === 'trialing';
 
   return (
-    <UserContext.Provider value={{ user, loading, refreshUser: fetchUser, isPro }}>
+    <UserContext.Provider value={{ user, loading, refreshUser: fetchUser, logout, isPro }}>
       {children}
     </UserContext.Provider>
   );

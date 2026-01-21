@@ -9,9 +9,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 conf = ConnectionConfig(
-    MAIL_USERNAME=settings.MAIL_USERNAME,
-    MAIL_PASSWORD=settings.MAIL_PASSWORD,
-    MAIL_FROM=settings.MAIL_FROM,
+    MAIL_USERNAME=settings.MAIL_USERNAME or "placeholder@example.com",
+    MAIL_PASSWORD=settings.MAIL_PASSWORD or "password",
+    MAIL_FROM=settings.MAIL_FROM or "placeholder@example.com",
     MAIL_PORT=settings.MAIL_PORT,
     MAIL_SERVER=settings.MAIL_SERVER,
     MAIL_STARTTLS=settings.MAIL_STARTTLS,

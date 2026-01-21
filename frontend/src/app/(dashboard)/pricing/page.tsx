@@ -69,10 +69,10 @@ export default function PricingPage() {
   ];
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-6xl mx-auto py-12 px-4 md:px-0"
+      className="py-12 px-4 md:px-0"
     >
       {/* Header Section */}
       <div className="text-center mb-16 relative">
@@ -230,29 +230,6 @@ export default function PricingPage() {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* BOTÃO DE SIMULAÇÃO (Apenas para Testes) */}
-      <div className="mt-20 flex flex-col items-center gap-4">
-        <button
-          onClick={async () => {
-            try {
-              await api.post('/stripe/simulate-success');
-              setToastMsg("Modo Pro Ativado! A redirecionar...");
-              setShowToast(true);
-              setTimeout(() => window.location.href = '/dashboard', 1500);
-            } catch (err) {
-              setToastMsg("Erro ao simular ativação.");
-              setShowToast(true);
-            }
-          }}
-          className="text-[10px] uppercase tracking-[0.3em] text-slate-600 hover:text-blue-400 transition-all border border-slate-800 hover:border-blue-500/30 px-6 py-3 rounded-full bg-slate-900/50 backdrop-blur-sm cursor-pointer"
-        >
-          Dev Mode: Ativar Pro Instantâneo
-        </button>
-        <p className="text-[9px] text-slate-700 uppercase tracking-widest">
-          Este botão ignora o Stripe e ativa o plano Pro na tua conta de teste.
-        </p>
       </div>
 
       <Toast 

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/lib/LanguageContext';
-import { DEMO_TRANSACTIONS, DEMO_CATEGORIES, DEMO_INSIGHTS } from '@/lib/mockData';
+import { DEMO_TRANSACTIONS, DEMO_CATEGORIES, DEMO_INSIGHTS, DEMO_RECURRING } from '@/lib/mockData';
 import Link from 'next/link';
 import { Lock, ArrowRight } from 'lucide-react';
 
@@ -43,6 +43,7 @@ export default function AnalyticsPage() {
           const isFresh = Date.now() - timestamp < 30000; // 30 segundos de cache "fresca"
           
           setRawData(data);
+          setIsPro(['active', 'trialing'].includes(data.subscription_status));
           if (isFresh) {
             setLoading(false);
             return;
@@ -56,7 +57,7 @@ export default function AnalyticsPage() {
       ]);
 
       const user = profileRes.data;
-      const hasActiveSub = user.subscription_status === 'active';
+      const hasActiveSub = ['active', 'trialing'].includes(user.subscription_status);
       
       // Se a subscrição mudou desde a última cache, ignoramos a cache e atualizamos
       const cached = localStorage.getItem('analytics_cache');
@@ -81,7 +82,8 @@ export default function AnalyticsPage() {
           ...compositeData,
           transactions: DEMO_TRANSACTIONS,
           categories: DEMO_CATEGORIES,
-          insights: DEMO_INSIGHTS
+          insights: DEMO_INSIGHTS,
+          recurring: DEMO_RECURRING
         };
       }
 
@@ -139,6 +141,8 @@ export default function AnalyticsPage() {
     let periodIncome = 0;
     let periodExpenses = 0;
     let cumulativeBalance = 0;
+    let investmentTotal = 0;
+    let emergencyTotal = 0;
     const evolutionData: any[] = [];
 
     // Filter and Sort for Recent Transactions
@@ -219,7 +223,8 @@ export default function AnalyticsPage() {
     const topExpenses = filteredTransactions
       .filter((t: any) => {
         const cat = rawData.categories.find((c: any) => c.id === t.category_id);
-        return !cat || cat.type === 'expense';
+        // Apenas despesas que não sejam de investimento/emergência
+        return (!cat || cat.type === 'expense') && (!cat || cat.vault_type === 'none');
       })
       .sort((a: any, b: any) => b.amount_cents - a.amount_cents)
       .slice(0, 5)
@@ -233,8 +238,25 @@ export default function AnalyticsPage() {
     sortedAll.forEach((t: any) => {
       const cat = rawData.categories.find((c: any) => c.id === t.category_id);
       const amount = t.amount_cents / 100;
-      if (cat?.type === 'income') cumulativeBalance += amount;
-      else cumulativeBalance -= amount;
+      
+      // Calculate Vault totals (all time)
+      if (cat?.vault_type === 'investment') {
+        if (cat.type === 'expense') investmentTotal += amount;
+        else investmentTotal -= amount; // Resgate de investimento
+      }
+      if (cat?.vault_type === 'emergency') {
+        if (cat.type === 'expense') emergencyTotal += amount;
+        else emergencyTotal -= amount; // Resgate de emergência
+      }
+
+      // Património Acumulado: Não subtrair investimentos (pois o dinheiro ainda é seu)
+      if (cat?.type === 'income') {
+        cumulativeBalance += amount;
+      } else if (cat?.vault_type === 'none') {
+        // Apenas subtrair despesas de consumo
+        cumulativeBalance -= amount;
+      }
+      // Se for despesa de investimento/emergência, o saldo acumulado (património) não desce
       
       evolutionData.push({
         date: t.transaction_date,
@@ -247,11 +269,15 @@ export default function AnalyticsPage() {
       const monthYear = `${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}`;
       const dayName = weekMap[date.getDay()];
       
+      const cat = rawData.categories.find((c: any) => c.id === t.category_id);
+      
+      // Excluir categorias de Investimento ou Emergência dos gráficos de FLUXO e GASTOS
+      if (cat && cat.vault_type !== 'none') return;
+
       if (!monthlyData[monthYear]) {
         monthlyData[monthYear] = { name: monthYear, income: 0, expenses: 0 };
       }
       
-      const cat = rawData.categories.find((c: any) => c.id === t.category_id);
       const amount = t.amount_cents / 100;
       
       if (cat) {
@@ -294,7 +320,9 @@ export default function AnalyticsPage() {
       healthScore: dynamicScore,
       savingRate: savingRate.toFixed(1),
       summary: rawData.insights?.summary || t.dashboard.analytics.subtitle,
-      insights: rawData.insights?.insights || []
+      insights: rawData.insights?.insights || [],
+      investmentTotal,
+      emergencyTotal
     });
   }, [selectedPeriod, rawData]);
 
@@ -759,16 +787,22 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Fundo de Emergência</p>
-              <p className="text-lg font-black text-white text-center">{formatCurrency(processedData.evolution.slice(-1)[0]?.balance * 0.4 || 0)}</p>
+              <p className="text-lg font-black text-white text-center">{formatCurrency(processedData.emergencyTotal)}</p>
               <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden">
-                <div className="h-full bg-blue-500 w-[60%]" />
+                <div 
+                  className="h-full bg-blue-500" 
+                  style={{ width: `${Math.min(100, (processedData.emergencyTotal / (processedData.evolution.slice(-1)[0]?.balance || 1)) * 100)}%` }} 
+                />
               </div>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Investimentos Zen</p>
-              <p className="text-lg font-black text-emerald-400 text-center">{formatCurrency(processedData.evolution.slice(-1)[0]?.balance * 0.2 || 0)}</p>
+              <p className="text-lg font-black text-emerald-400 text-center">{formatCurrency(processedData.investmentTotal)}</p>
               <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden">
-                <div className="h-full bg-emerald-500 w-[40%]" />
+                <div 
+                  className="h-full bg-emerald-500" 
+                  style={{ width: `${Math.min(100, (processedData.investmentTotal / (processedData.evolution.slice(-1)[0]?.balance || 1)) * 100)}%` }} 
+                />
               </div>
             </div>
           </div>

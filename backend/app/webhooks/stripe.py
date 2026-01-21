@@ -35,13 +35,28 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     return {'status': 'success'}
 
 def handle_checkout_completed(session: dict, db: Session):
-    customer_id = session['customer']
-    subscription_id = session['subscription']
+    customer_id = session.get('customer')
+    subscription_id = session.get('subscription')
+    user_id = session.get('client_reference_id')
     
-    sub = db.query(models.User).filter(models.User.stripe_customer_id == customer_id).first()
-    if sub:
-        sub.stripe_subscription_id = subscription_id
-        sub.subscription_status = 'active'
+    user = None
+    
+    # 1. Tentar encontrar por client_reference_id (mais robusto)
+    if user_id:
+        try:
+            user = db.query(models.User).filter(models.User.id == user_id).first()
+        except:
+            pass
+            
+    # 2. Tentar encontrar por customer_id
+    if not user and customer_id:
+        user = db.query(models.User).filter(models.User.stripe_customer_id == customer_id).first()
+        
+    if user:
+        user.stripe_subscription_id = subscription_id
+        user.subscription_status = 'active'
+        if not user.stripe_customer_id:
+            user.stripe_customer_id = customer_id
         db.commit()
 
 def handle_subscription_updated(subscription: dict, db: Session):

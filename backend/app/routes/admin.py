@@ -3,13 +3,20 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from uuid import UUID
-from ..core.dependencies import get_db
+from ..core.dependencies import get_db, conf
 from ..models import database as models
 from .. import schemas
 from .auth import get_current_user
 from ..core.audit import log_action
 import stripe
 from ..core.config import settings
+from fastapi_mail import FastMail, MessageSchema, MessageType
+import logging
+import requests
+
+import json
+
+logger = logging.getLogger(__name__)
 
 stripe.api_key = settings.STRIPE_API_KEY
 
@@ -51,7 +58,7 @@ async def get_admin_stats(db: Session = Depends(get_db), admin: models.User = De
     active_subscriptions = db.query(func.count(models.User.id)).filter(models.User.subscription_status != 'none').scalar()
     
     total_visits = db.query(func.sum(models.User.login_count)).scalar() or 0
-    recent_logs = db.query(models.AuditLog).order_by(models.AuditLog.created_at.desc()).limit(10).all()
+    # No longer returning recent logs here to avoid confusion with paginated ones
     
     return schemas.AdminStats(
         total_users=total_users,
@@ -59,8 +66,34 @@ async def get_admin_stats(db: Session = Depends(get_db), admin: models.User = De
         total_recurring=total_recurring,
         active_subscriptions=active_subscriptions,
         total_visits=total_visits,
-        recent_logs=recent_logs
+        recent_logs=[]
     )
+
+@router.get('/audit-logs')
+async def get_audit_logs(
+    page: int = 1, 
+    limit: int = 20, 
+    action: str = None, 
+    db: Session = Depends(get_db), 
+    admin: models.User = Depends(check_admin)
+):
+    query = db.query(models.AuditLog)
+    
+    if action and action != 'all':
+        query = query.filter(models.AuditLog.action.contains(action))
+        
+    total = query.count()
+    logs = query.order_by(models.AuditLog.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    # SQLAlchemy will handle the relationship if it's defined in the model
+    # and the schema has 'user: UserResponse'
+    
+    return {
+        "logs": logs,
+        "total": total,
+        "page": page,
+        "pages": (total + limit - 1) // limit
+    }
 
 @router.get('/users', response_model=List[schemas.AdminUserResponse])
 async def get_admin_users(db: Session = Depends(get_db), admin: models.User = Depends(check_admin)):
@@ -120,3 +153,85 @@ async def delete_user_admin(request: Request, user_id: UUID, db: Session = Depen
     await log_action(db, action='admin_user_delete', user_id=admin.id, details=f'Deleted user: {email}', request=request)
     return {'message': 'Utilizador eliminado com sucesso'}
 
+@router.get('/settings')
+async def get_system_settings(db: Session = Depends(get_db), admin: models.User = Depends(check_admin)):
+    settings_list = db.query(models.SystemSetting).all()
+    return {s.key: s.value for s in settings_list}
+
+@router.post('/settings')
+async def update_system_setting(data: dict, db: Session = Depends(get_db), admin: models.User = Depends(check_admin)):
+    for key, value in data.items():
+        setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == key).first()
+        if setting:
+            setting.value = str(value)
+        else:
+            setting = models.SystemSetting(key=key, value=str(value))
+            db.add(setting)
+    db.commit()
+    return {"message": "Definições atualizadas"}
+
+@router.post('/marketing/broadcast')
+async def send_marketing_broadcast(
+    request: Request,
+    broadcast: schemas.BroadcastRequest,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(check_admin)
+):
+    # Find all users who opted in for marketing
+    users = db.query(models.User).filter(models.User.marketing_opt_in == True).all()
+    
+    if not users:
+        return {"message": "Nenhum utilizador com marketing opt-in encontrado.", "count": 0}
+
+    sent_count = 0
+    
+    fm = FastMail(conf)
+    
+    for user in users:
+        try:
+            logger.info(f"A preparar envio de broadcast para: {user.email}")
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <body style="font-family: sans-serif; background-color: #020617; color: #94a3b8; padding: 40px;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: #0f172a; border-radius: 24px; padding: 40px; border: 1px solid #1e293b;">
+                    <h2 style="color: #ffffff; margin-top: 0;">{broadcast.subject}</h2>
+                    <p style="line-height: 1.6; font-size: 16px;">{broadcast.message}</p>
+                    <hr style="border: 0; border-top: 1px solid #1e293b; margin: 30px 0;">
+                    <p style="font-size: 12px; color: #475569;">Recebeu este email porque aceitou as comunicações de marketing do FinanZen.</p>
+                </div>
+            </body>
+            </html>
+            """
+            message = MessageSchema(
+                subject=broadcast.subject,
+                recipients=[user.email],
+                body=html,
+                subtype=MessageType.html
+            )
+            await fm.send_message(message)
+            logger.info(f"SUCCESS: Email de broadcast enviado para: {user.email}")
+            sent_count += 1
+        except Exception as e:
+            logger.error(f"ERROR: Falha ao enviar broadcast para {user.email}: {str(e)}")
+
+    # Guardar os detalhes completos no Log de Auditoria
+    log_details = json.dumps({
+        "subject": broadcast.subject,
+        "message": broadcast.message,
+        "sent_count": sent_count
+    }, ensure_ascii=False)
+
+    await log_action(
+        db, 
+        action='marketing_broadcast', 
+        user_id=admin.id, 
+        details=log_details, 
+        request=request
+    )
+
+    return {
+        "message": "Broadcast de email concluído com sucesso",
+        "total_users": len(users),
+        "sent": sent_count
+    }

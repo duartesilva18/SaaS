@@ -6,7 +6,7 @@ import {
   User, Phone, Coins, UserCircle, 
   CreditCard, Download, 
   Trash2, CheckCircle2, AlertCircle, Loader2,
-  ChevronRight, BellRing, Sparkles, Globe, Check
+  ChevronRight, BellRing, Sparkles,   Globe, Check, Send, ExternalLink, ChevronRight, BellRing, Sparkles
 } from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
 import api from '@/lib/api';
@@ -379,6 +379,33 @@ export default function SettingsPage() {
 
         {/* Sidebar Settings (Billing & Danger Zone) */}
         <div className="space-y-8">
+          {/* Telegram Card */}
+          <section className="bg-gradient-to-br from-blue-600/10 to-indigo-600/10 backdrop-blur-xl border border-blue-500/20 rounded-[32px] p-8 relative overflow-hidden hover:border-blue-500/40 transition-all group shadow-xl">
+            <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/5 blur-[60px] rounded-full -z-10" />
+            
+            <div className="flex items-center gap-4 mb-8">
+              <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform text-white">
+                <Send size={20} />
+              </div>
+              <h2 className="text-lg font-black tracking-tighter text-white uppercase tracking-widest text-[11px]">
+                Bot Telegram
+              </h2>
+            </div>
+
+            <p className="text-slate-400 text-sm font-medium mb-8 leading-relaxed italic">
+              Regista despesas e envia fotos de recibos diretamente pelo Telegram. A IA faz o resto.
+            </p>
+
+            <a 
+              href="https://t.me/FinanZenApp_bot" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              Associar Telegram <ExternalLink size={14} />
+            </a>
+          </section>
+
           {/* Billing Card */}
           <section className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 rounded-[32px] p-8 relative overflow-hidden hover:border-slate-700 transition-all group shadow-xl">
             <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 blur-[60px] rounded-full -z-10" />

@@ -43,6 +43,7 @@ class Workspace(Base):
     transactions = relationship('Transaction', back_populates='workspace', cascade='all, delete-orphan')
     recurring_transactions = relationship('RecurringTransaction', back_populates='workspace', cascade='all, delete-orphan')
     installment_groups = relationship('InstallmentGroup', back_populates='workspace', cascade='all, delete-orphan')
+    savings_goals = relationship('SavingsGoal', back_populates='workspace', cascade='all, delete-orphan')
 
 class Category(Base):
     __tablename__ = 'categories'
@@ -50,6 +51,7 @@ class Category(Base):
     workspace_id = Column(UUID(as_uuid=True), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=False)
     name = Column(String(100), nullable=False)
     type = Column(String(10), nullable=False)
+    vault_type = Column(String(20), nullable=False, server_default='none')
     monthly_limit_cents = Column(Integer, nullable=False, server_default='0')
     color_hex = Column(String(7), nullable=False, server_default='#3B82F6')
     icon = Column(String(50), nullable=False, server_default='Tag')
@@ -104,6 +106,14 @@ class Transaction(Base):
         CheckConstraint('amount_cents <> 0'),
     )
 
+class SystemSetting(Base):
+    __tablename__ = 'system_settings'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key = Column(String(50), unique=True, index=True, nullable=False)
+    value = Column(String, nullable=True)
+    description = Column(String(255), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
 class RecurringTransaction(Base):
     __tablename__ = 'recurring_transactions'
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -139,4 +149,19 @@ class AuditLog(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     
     user = relationship('User')
+
+class SavingsGoal(Base):
+    __tablename__ = 'savings_goals'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=False)
+    name = Column(String(100), nullable=False)
+    target_amount_cents = Column(Integer, nullable=False)
+    current_amount_cents = Column(Integer, nullable=False, default=0)
+    target_date = Column(Date, nullable=False)
+    icon = Column(String(50), nullable=False, server_default='Target')
+    color_hex = Column(String(7), nullable=False, server_default='#3B82F6')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    workspace = relationship('Workspace', back_populates='savings_goals')
 

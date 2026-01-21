@@ -45,7 +45,9 @@ const motivationalQuotes = [
 function GoogleLoginButton({ onLoginSuccess }: { onLoginSuccess: (token: string) => void }) {
   const login = useGoogleLogin({
     onSuccess: (tokenResponse) => onLoginSuccess(tokenResponse.access_token),
-    onError: () => console.log('Login com Google Falhou')
+    onError: () => console.log('Login com Google Falhou'),
+    flow: 'implicit',
+    prompt: 'select_account' // 🔄 Força a escolha da conta Google sempre
   });
 
   return (
@@ -154,8 +156,10 @@ export default function LoginPage() {
     }
   };
 
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "168035889326-q6bstt3rkcg40o6u9ijgar0uh6h179j8.apps.googleusercontent.com";
+  
   return (
-    <GoogleOAuthProvider clientId="168035889326-q6bstt3rkcg40o6u9ijgar0uh6h179j8.apps.googleusercontent.com">
+    <GoogleOAuthProvider clientId={googleClientId}>
       <div className="min-h-screen bg-[#020617] text-slate-50 flex flex-col md:flex-row relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600/10 blur-[120px] rounded-full pointer-events-none" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-600/10 blur-[120px] rounded-full pointer-events-none" />

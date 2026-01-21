@@ -60,6 +60,7 @@ class SocialLoginRequest(BaseModel):
 class CategoryBase(BaseModel):
     name: str
     type: str
+    vault_type: str = 'none'
     monthly_limit_cents: int = 0
     color_hex: str = '#3B82F6'
     icon: str = 'Tag'
@@ -68,6 +69,7 @@ class CategoryBase(BaseModel):
 class CategoryUpdate(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = None
+    vault_type: Optional[str] = None
     monthly_limit_cents: Optional[int] = None
     color_hex: Optional[str] = None
     icon: Optional[str] = None
@@ -176,6 +178,22 @@ class AuditLogResponse(BaseModel):
     details: Optional[str] = None
     ip_address: Optional[str] = None
     created_at: datetime
+    user: Optional[UserResponse] = None
+
+    class Config:
+        from_attributes = True
+
+class SystemSettingBase(BaseModel):
+    key: str
+    value: str
+    description: Optional[str] = None
+
+class SystemSettingUpdate(BaseModel):
+    value: str
+
+class SystemSettingResponse(SystemSettingBase):
+    id: UUID
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -192,6 +210,8 @@ class AdminUserResponse(BaseModel):
     id: UUID
     email: str
     full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    marketing_opt_in: bool = False
     subscription_status: str
     created_at: datetime
     is_active: bool
@@ -215,4 +235,37 @@ class AdminUserUpdate(BaseModel):
     subscription_status: Optional[str] = None
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None
+
+class BroadcastRequest(BaseModel):
+    subject: str
+    message: str
+
+# Metas de Poupança
+class SavingsGoalBase(BaseModel):
+    name: str
+    target_amount_cents: int
+    current_amount_cents: int = 0
+    target_date: date
+    icon: str = 'Target'
+    color_hex: str = '#3B82F6'
+
+class SavingsGoalCreate(SavingsGoalBase):
+    pass
+
+class SavingsGoalUpdate(BaseModel):
+    name: Optional[str] = None
+    target_amount_cents: Optional[int] = None
+    current_amount_cents: Optional[int] = None
+    target_date: Optional[date] = None
+    icon: Optional[str] = None
+    color_hex: Optional[str] = None
+
+class SavingsGoalResponse(SavingsGoalBase):
+    id: UUID
+    workspace_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 

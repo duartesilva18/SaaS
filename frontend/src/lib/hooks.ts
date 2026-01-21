@@ -12,7 +12,7 @@ export function useCategories() {
     dedupingInterval: 60000,
   });
 
-  const hasActiveSub = user?.subscription_status === 'active';
+  ❌ Falha na Verificação! Recebido: 'None' | Esperado: 'zen_secret_token'  const hasActiveSub = ['active', 'trialing'].includes(user?.subscription_status || '');
   // Se não for Pro e não houver dados, retorna Mock Categories
   const categories = !hasActiveSub && (!data || data.length === 0) ? DEMO_CATEGORIES : data || [];
 

@@ -238,7 +238,7 @@ export default function RecurringPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-[1600px] mx-auto space-y-12 pb-20 px-4 md:px-8">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-12 pb-20 px-4 md:px-8">
       <style jsx global>{`
         .no-scrollbar::-webkit-scrollbar { height: 0px; background: transparent; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

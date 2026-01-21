@@ -78,7 +78,6 @@ export default function TransactionsPage() {
 
   const filteredTransactions = useMemo(() => {
     return [...transactions]
-      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
       .filter(t => {
         const cat = categories.find(c => c.id === t.category_id);
         const matchesSearch = t.description?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -111,6 +110,15 @@ export default function TransactionsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const selectedDate = new Date(formData.transaction_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (selectedDate > today) {
+        setToastInfo({ message: "A jornada Zen só regista o presente ou o passado. Escolha uma data válida.", type: 'error', isVisible: true });
+        return;
+      }
+
       const payload = {
         amount_cents: Math.round(parseFloat(formData.amount) * 100),
         description: formData.description,
@@ -183,7 +191,7 @@ export default function TransactionsPage() {
     <motion.div 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
-      className="space-y-12 pb-20"
+      className="max-w-[1400px] mx-auto space-y-12 pb-20 px-2 md:px-0"
     >
       {/* Hero Header */}
       <section className="relative">
@@ -442,7 +450,7 @@ export default function TransactionsPage() {
                   </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-8">
+                <form onSubmit={handleSubmit} noValidate className="space-y-8">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Descrição</label>
                     <div className="relative group">
@@ -481,6 +489,7 @@ export default function TransactionsPage() {
                         <input
                           required
                           type="date"
+                          max={new Date().toISOString().split('T')[0]}
                           value={formData.transaction_date}
                           onChange={(e) => setFormData({ ...formData, transaction_date: e.target.value })}
                           className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-5 text-white focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"

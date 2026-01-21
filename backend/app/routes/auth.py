@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
-import random
-import string
+from datetime import datetime, timedelta, timezone
+import secrets
+import re
 import uuid
 import requests
 from jose import jwt, JWTError
@@ -20,6 +20,23 @@ from ..core.audit import log_action
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/auth', tags=['auth'])
 
+def validate_email(email: str) -> bool:
+    """Valida formato de email usando regex robusto"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+def validate_password(password: str) -> tuple[bool, str]:
+    """Valida força da senha"""
+    if len(password) < 8:
+        return False, "A senha deve ter pelo menos 8 caracteres"
+    if not re.search(r'[A-Z]', password):
+        return False, "A senha deve conter pelo menos uma letra maiúscula"
+    if not re.search(r'[a-z]', password):
+        return False, "A senha deve conter pelo menos uma letra minúscula"
+    if not re.search(r'\d', password):
+        return False, "A senha deve conter pelo menos um número"
+    return True, ""
+
 async def get_current_user(db: Session = Depends(get_db), token: str = Depends(security.oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -31,11 +48,11 @@ async def get_current_user(db: Session = Depends(get_db), token: str = Depends(s
         email: str = payload.get('sub')
         if email is None:
             raise credentials_exception
-        token_data = schemas.TokenData(email=email)
     except JWTError:
         raise credentials_exception
     
-    user = db.query(models.User).filter(models.User.email == token_data.email).first()
+    # Corrigido: usar email diretamente em vez de token_data não definido
+    user = db.query(models.User).filter(models.User.email == email).first()
     if user is None:
         raise credentials_exception
     return user
@@ -43,6 +60,15 @@ async def get_current_user(db: Session = Depends(get_db), token: str = Depends(s
 @router.post('/register', response_model=schemas.UserResponse)
 @limiter.limit('30/hour')
 async def register(request: Request, user_in: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Validação de email
+    if not validate_email(user_in.email):
+        raise HTTPException(status_code=400, detail='Formato de email inválido.')
+    
+    # Validação de senha forte
+    is_valid, error_msg = validate_password(user_in.password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
     db_user = db.query(models.User).filter(models.User.email == user_in.email).first()
     if db_user:
         logger.warning(f'Tentativa de registo com email já existente: {user_in.email}')
@@ -52,8 +78,9 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
     db.query(models.EmailVerification).filter(models.EmailVerification.email == user_in.email).delete()
     
     hashed_pw = security.get_password_hash(user_in.password)
-    token = ''.join(random.choices(string.ascii_letters + string.digits, k=64))
-    expires_at = datetime.now() + timedelta(hours=24)
+    # Usar secrets.token_urlsafe para token criptograficamente seguro
+    token = secrets.token_urlsafe(48)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     
     verification = models.EmailVerification(
         email=user_in.email,
@@ -126,7 +153,7 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
         'is_onboarded': False,
         'marketing_opt_in': False,
         'currency': 'EUR',
-        'created_at': datetime.now()
+        'created_at': datetime.now(timezone.utc)
     }
 
 @router.get('/verification-status/{email}')
@@ -134,12 +161,32 @@ async def check_verification_status(email: str, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == email).first()
     return {'is_verified': user.is_email_verified if user else False}
 
+def create_default_categories(db: Session, workspace_id: uuid.UUID):
+    default_cats = [
+        {"name": "Investimento", "type": "expense", "vault_type": "investment", "color_hex": "#3B82F6", "icon": "TrendingUp", "is_default": True},
+        {"name": "Fundo de Emergência", "type": "expense", "vault_type": "emergency", "color_hex": "#F97316", "icon": "ShieldCheck", "is_default": True},
+        {"name": "Alimentação", "type": "expense", "vault_type": "none", "color_hex": "#F59E0B", "icon": "Utensils", "is_default": False},
+        {"name": "Entretenimento", "type": "expense", "vault_type": "none", "color_hex": "#EC4899", "icon": "Gamepad", "is_default": False},
+        {"name": "Transportes", "type": "expense", "vault_type": "none", "color_hex": "#3B82F6", "icon": "Car", "is_default": False},
+        {"name": "Habitação", "type": "expense", "vault_type": "none", "color_hex": "#8B5CF6", "icon": "Home", "is_default": False},
+        {"name": "Saúde", "type": "expense", "vault_type": "none", "color_hex": "#10B981", "icon": "Heart", "is_default": False},
+        {"name": "Salário", "type": "income", "vault_type": "none", "color_hex": "#10B981", "icon": "Landmark", "is_default": False},
+    ]
+    
+    for cat_data in default_cats:
+        new_cat = models.Category(
+            workspace_id=workspace_id,
+            **cat_data
+        )
+        db.add(new_cat)
+    db.commit()
+
 @router.get('/verify-email')
 async def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
     verification = db.query(models.EmailVerification).filter(
         models.EmailVerification.token == token,
         models.EmailVerification.is_used == False,
-        models.EmailVerification.expires_at > datetime.now()
+        models.EmailVerification.expires_at > datetime.now(timezone.utc)
     ).first()
     
     if not verification:
@@ -160,6 +207,10 @@ async def verify_email(request: Request, token: str, db: Session = Depends(get_d
         new_workspace = models.Workspace(owner_id=user.id, name='Meu Workspace')
         db.add(new_workspace)
         db.commit()
+        db.refresh(new_workspace)
+        
+        # Criar categorias padrão (Investimento e Fundo de Emergência)
+        create_default_categories(db, new_workspace.id)
         
         logger.info(f'Utilizador criado e verificado: {user.email}')
         await log_action(db, action='register_success', user_id=user.id, details=f'Novo utilizador registado: {user.email}', request=request)
@@ -250,7 +301,7 @@ async def login(request: Request, db: Session = Depends(get_db), form_data: OAut
         )
     
     user.login_count += 1
-    user.last_login = datetime.now()
+    user.last_login = datetime.now(timezone.utc)
     db.commit()
     
     await log_action(db, action='login', user_id=user.id, details=f'Login bem-sucedido: {user.email}', request=request)
@@ -273,8 +324,9 @@ async def request_password_reset(request: Request, data: schemas.PasswordResetRe
         logger.warning(f'Pedido de reset de password para email inexistente: {data.email}')
         raise HTTPException(status_code=404, detail='Não existe nenhuma conta associada a este email.')
     
-    code = ''.join(random.choices(string.digits, k=6) )
-    expires_at = datetime.now() + timedelta(minutes=15)
+    # Usar secrets para código seguro
+    code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
     
     reset_obj = models.PasswordReset(email=data.email, code=code, expires_at=expires_at)
     db.add(reset_obj)
@@ -357,7 +409,7 @@ async def verify_reset_code(request: Request, data: schemas.PasswordResetVerify,
         models.PasswordReset.email == data.email,
         models.PasswordReset.code == data.code,
         models.PasswordReset.is_used == False,
-        models.PasswordReset.expires_at > datetime.now()
+        models.PasswordReset.expires_at > datetime.now(timezone.utc)
     ).first()
     
     if not reset_obj:
@@ -375,7 +427,7 @@ async def confirm_password_reset(request: Request, data: schemas.PasswordResetCo
         models.PasswordReset.email == data.email,
         models.PasswordReset.code == data.code,
         models.PasswordReset.is_used == False,
-        models.PasswordReset.expires_at > datetime.now()
+        models.PasswordReset.expires_at > datetime.now(timezone.utc)
     ).first()
     
     if not reset_obj:
@@ -384,6 +436,11 @@ async def confirm_password_reset(request: Request, data: schemas.PasswordResetCo
     user = db.query(models.User).filter(models.User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=404, detail='Utilizador não encontrado')
+    
+    # Validação de senha forte
+    is_valid, error_msg = validate_password(data.new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
     
     user.password_hash = security.get_password_hash(data.new_password)
     reset_obj.is_used = True
@@ -422,7 +479,7 @@ async def social_login(request: Request, data: schemas.SocialLoginRequest, db: S
             google_id=social_id if data.provider == 'google' else None,
             is_email_verified=True,
             login_count=1,
-            last_login=datetime.now()
+            last_login=datetime.now(timezone.utc)
         )
         db.add(user)
         db.commit()
@@ -431,11 +488,15 @@ async def social_login(request: Request, data: schemas.SocialLoginRequest, db: S
         new_workspace = models.Workspace(owner_id=user.id, name='Meu Workspace')
         db.add(new_workspace)
         db.commit()
+        db.refresh(new_workspace)
+        
+        # Criar categorias padrão (Investimento e Fundo de Emergência)
+        create_default_categories(db, new_workspace.id)
     else:
         if data.provider == 'google' and not user.google_id:
             user.google_id = social_id
         user.login_count += 1
-        user.last_login = datetime.now()
+        user.last_login = datetime.now(timezone.utc)
         db.commit()
     
     await log_action(db, action='login_social', user_id=user.id, details=f'Login via {data.provider}: {user.email}', request=request)

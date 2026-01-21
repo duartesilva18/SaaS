@@ -50,7 +50,7 @@ export default function GuidePage() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-20 pb-20 px-4 md:px-8 pt-10">
+    <div className="space-y-20 pb-20 px-4 md:px-8 pt-10">
       {/* Header Section */}
       <section className="text-center space-y-6">
         <motion.div

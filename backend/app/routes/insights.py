@@ -36,21 +36,24 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
     def calculate_totals(txs):
         income = 0
         expenses = 0
+        vault = 0
         exp_by_cat = {}
         for t in txs:
             cat = cat_map.get(t.category_id)
-            amount = t.amount_cents / 100
+            amount = abs(t.amount_cents / 100)
             if cat:
                 if cat.type == 'income':
                     income += amount
+                elif cat.vault_type != 'none':
+                    vault += amount
                 else:
                     expenses += amount
                     exp_by_cat[cat.name] = exp_by_cat.get(cat.name, 0) + amount
             else:
                 expenses += amount
-        return income, expenses, exp_by_cat
+        return income, expenses, vault, exp_by_cat
 
-    total_income, total_expenses, expenses_by_cat = calculate_totals(transactions)
+    total_income, total_expenses, total_vault, expenses_by_cat = calculate_totals(transactions)
     
     now = datetime.now()
     this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -67,110 +70,154 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
         models.Transaction.transaction_date < this_month_start.date()
     ).all()
     
-    this_income, this_expenses, this_expenses_by_cat = calculate_totals(this_month_transactions)
-    last_income, last_expenses, last_expenses_by_cat = calculate_totals(last_month_transactions)
+    this_income, this_expenses, this_vault, this_expenses_by_cat = calculate_totals(this_month_transactions)
+    last_income, last_expenses, last_vault, last_expenses_by_cat = calculate_totals(last_month_transactions)
     
     insights = []
-    health_score = 70
+    health_score = 50 # Base neutra (era 65)
     
-    if last_expenses > 0:
-        variation = (this_expenses - last_expenses) / last_expenses * 100
-        if variation > 10:
-            health_score -= 15
+    # 1. Taxa de Poupança (Saving Rate) - A métrica mestre
+    if this_income > 0:
+        saving_rate = ((this_income - this_expenses) / this_income) * 100
+        if saving_rate >= 50:
+            health_score += 25 # Bónus de elite
             insights.append(schemas.InsightItem(
-                type='warning',
-                title='📈 GASTOS EM ACELERAÇÃO',
-                message=f"Estás a gastar {variation:.0f}% mais do que no mês passado. Identifica a 'fuga' antes que se torne uma inundação.",
-                icon='alert-circle'
+                type='success',
+                title='💎 MESTRE DA ABUNDÂNCIA',
+                message=f"Uau! Estás a poupar {saving_rate:.0f}%. Este é o nível de elite da liberdade financeira.",
+                icon='sparkles'
             ))
-        elif variation < -5:
+        elif saving_rate >= 25:
             health_score += 15
             insights.append(schemas.InsightItem(
                 type='success',
-                title='📉 DOMÍNIO TOTAL',
-                message=f"Fantástico! Reduziste os gastos em {abs(variation):.0f}%. O teu autocontrolo é a tua maior riqueza.",
-                icon='sparkles'
-            ))
-            
-    if this_expenses > this_income and this_income > 0:
-        health_score -= 25
-        diff = this_expenses - this_income
-        insights.append(schemas.InsightItem(
-            type='warning',
-            title='⚠️ DÉFICE DETETADO',
-            message=f"ALERTA: Estás {current_user.currency} {diff:.2f} abaixo do ponto de equilíbrio. Tempo de uma auditoria de emergência.",
-            icon='alert-circle'
-        ))
-    elif this_income > this_expenses * 1.5:
-        health_score += 10
-        insights.append(schemas.InsightItem(
-            type='success',
-            title='🧘‍♂️ ESTADO DE ZEN',
-            message='O teu excedente é confortável. Considera investir na tua paz futura ou num sonho antigo.',
-            icon='sparkles'
-        ))
-        
-    if expenses_by_cat and total_expenses > 0:
-        top_cat, top_amount = max(expenses_by_cat.items(), key=lambda x: x[1])
-        perc_of_expenses = (top_amount / total_expenses) * 100
-        
-        is_significant = False
-        if this_income > 0:
-            perc_of_income = (top_amount / this_income) * 100
-            if perc_of_income > 10:
-                is_significant = True
-        elif top_amount > 50 and perc_of_expenses > 40:
-            is_significant = True
-            
-        if is_significant and perc_of_expenses > 40:
-            health_score -= 10
-            insights.append(schemas.InsightItem(
-                type='warning',
-                title=f"⚠️ FOCO EM: {top_cat.upper()}",
-                message=f"A categoria {top_cat} representa {perc_of_expenses:.0f}% dos teus gastos atuais. Sendo um peso relevante no teu orçamento, valerá a pena otimizar?",
+                title='📈 RITMO POSITIVO',
+                message=f"Estás a reter {saving_rate:.0f}% do teu rendimento. Mantém este fôlego para construir o teu império.",
                 icon='trending-up'
             ))
+        elif saving_rate >= 10:
+            health_score += 5
+            insights.append(schemas.InsightItem(
+                type='info',
+                title='⚖️ EQUILÍBRIO JUSTO',
+                message=f"A tua taxa de poupança está em {saving_rate:.0f}%. Tenta reduzir despesas supérfluas.",
+                icon='compass'
+            ))
+        elif saving_rate >= 0:
+            health_score -= 5 # Poupança medíocre tira pontos
+            insights.append(schemas.InsightItem(
+                type='warning',
+                title='🐌 RITMO LENTO',
+                message=f"A tua taxa de poupança ({saving_rate:.0f}%) é baixa. Estás muito próximo do limite de segurança.",
+                icon='activity'
+            ))
+        else:
+            health_score -= 45 # Penalização severa para défice
+            insights.append(schemas.InsightItem(
+                type='danger',
+                title='🚨 DÉFICE CRÍTICO',
+                message=f"ALERTA: Estás a gastar {abs(saving_rate):.0f}% acima do que ganhas. O teu ecossistema está em risco.",
+                icon='alert-circle'
+            ))
+    elif this_expenses > 0:
+        health_score -= 40
+        insights.append(schemas.InsightItem(
+            type='warning',
+            title='⚠️ CONSUMO SEM RECEITA',
+            message="Detetámos gastos mas ainda não registaste receitas este mês.",
+            icon='alert-circle'
+        ))
+
+    # 2. Consistência de Investimento (Cofre)
+    if this_vault > 0:
+        investment_ratio = (this_vault / this_income * 100) if this_income > 0 else 10
+        # Só ganha pontos reais se investir mais de 10%
+        if investment_ratio >= 20:
+            health_score += 20
+        elif investment_ratio >= 10:
+            health_score += 10
+        else:
+            health_score += 2
             
-    small_expenses = [t for t in this_month_transactions if 0 < t.amount_cents < 1000]
-    if len(small_expenses) > 5:
-        health_score -= 5
-        total_small = sum(t.amount_cents for t in small_expenses) / 100
+        if last_vault > 0 and this_vault >= last_vault:
+            insights.append(schemas.InsightItem(
+                type='success',
+                title='🛡️ ESCUDO ZEN',
+                message="A tua disciplina de investimento está impecável.",
+                icon='shield-check'
+            ))
+    elif this_income > 0:
+        health_score -= 20 # Punição severa por não investir
         insights.append(schemas.InsightItem(
             type='info',
-            title='📉 PEQUENAS DESPESAS',
-            message=f"Detetámos {len(small_expenses)} transações de baixo valor. Somadas, totalizam {current_user.currency} {total_small:.2f}. Atenção aos pequenos gastos!",
-            icon='compass'
+            title='🌱 SEMEIA O FUTURO',
+            message="Ainda não reforçaste o teu Cofre este mês.",
+            icon='target'
         ))
-        
-    if len(this_month_transactions) > 0 and len(last_month_transactions) == 0:
+
+    # 3. Análise de Limites de Categorias
+    categories_near_limit = []
+    for cat in categories:
+        if cat.type == 'expense' and cat.monthly_limit_cents > 0:
+            spent = this_expenses_by_cat.get(cat.name, 0)
+            limit = cat.monthly_limit_cents / 100
+            if spent > limit:
+                categories_near_limit.append((cat.name, (spent/limit)*100, True))
+            elif spent >= limit * 0.8:
+                categories_near_limit.append((cat.name, (spent/limit)*100, False))
+
+    if categories_near_limit:
+        critical_violations = [c for c in categories_near_limit if c[2]]
+        if critical_violations:
+            health_score -= (25 * len(critical_violations)) # Muito punitivo
+            top = max(critical_violations, key=lambda x: x[1])
+            insights.append(schemas.InsightItem(
+                type='danger',
+                title='💀 LIMITE EXCEDIDO',
+                message=f"A categoria {top[0]} ultrapassou o teto planeado ({top[1]:.0f}%).",
+                icon='zap'
+            ))
+        else:
+            health_score -= 15
+            top = max(categories_near_limit, key=lambda x: x[1])
+            insights.append(schemas.InsightItem(
+                type='warning',
+                title='⚠️ ZONA AMARELA',
+                message=f"Atenção a {top[0]} ({top[1]:.0f}% do limite).",
+                icon='zap'
+            ))
+
+    # 4. Detetção de Anomalias (Spikes)
+    if this_expenses > 0 and len(this_month_transactions) > 0:
+        avg_trans = this_expenses / len(this_month_transactions)
+        big_spenders = [t for t in this_month_transactions if (t.amount_cents/100) > avg_trans * 4 and t.amount_cents > 10000]
+        if big_spenders:
+            health_score -= 20 # Penalização pesada para impulsividade
+            insights.append(schemas.InsightItem(
+                type='info',
+                title='⚡ PICO DE CONSUMO',
+                message=f"Detetámos um gasto singular elevado em '{big_spenders[0].description}'.",
+                icon='activity'
+            ))
+
+    # 5. Pequenos Gastos (Ghost Spending)
+    small_expenses = [t for t in this_month_transactions if 0 < t.amount_cents < 1000]
+    if len(small_expenses) > 6: # Limite de tolerância menor (era 8)
+        health_score -= 15
         insights.append(schemas.InsightItem(
-            type='success',
-            title='🌱 NOVO COMEÇO',
-            message='Estás a dar os primeiros passos no teu ecossistema. A consistência é a chave para a paz financeira.',
-            icon='sparkles'
+            type='info',
+            title='👻 GASTOS FANTASMA',
+            message=f"Fizeste {len(small_expenses)} pequenas compras. Estas fugas silenciosas destroem a tua paz.",
+            icon='ghost'
         ))
-        
+
+    # Ajuste final do score e fallbacks
     health_score = max(0, min(100, health_score))
     
     fallbacks = [
-        schemas.InsightItem(
-            type='info',
-            title='💎 SABEDORIA ZEN',
-            message='O dinheiro é um servo mestre, mas um mestre terrível. Mantém o controlo.',
-            icon='lightbulb'
-        ),
-        schemas.InsightItem(
-            type='info',
-            title='🧘‍♂️ FOCO NO AGORA',
-            message='Regista todas as tuas transações no momento. A clareza traz tranquilidade.',
-            icon='sparkles'
-        ),
-        schemas.InsightItem(
-            type='info',
-            title='🚀 EVOLUÇÃO',
-            message='Pequenas mudanças hoje criam grandes fortunas amanhã. Continua focado.',
-            icon='trending-up'
-        )
+        schemas.InsightItem(type='info', title='💎 SABEDORIA ZEN', message='O dinheiro é um bom servo, mas um mestre perigoso. Mantém a clareza.', icon='lightbulb'),
+        schemas.InsightItem(type='info', title='🧘‍♂️ FOCO NO AGORA', message='Regista as tuas despesas no momento em que acontecem para manter o controlo.', icon='sparkles'),
+        schemas.InsightItem(type='info', title='🚀 EVOLUÇÃO', message='O teu futuro financeiro é construído com as decisões que tomas hoje.', icon='trending-up')
     ]
     
     for fb in fallbacks:
@@ -180,9 +227,15 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
         
     summary = 'O teu ecossistema financeiro está em constante evolução.'
     if health_score < 40:
-        summary = 'CUIDADO: A tua paz financeira está em risco crítico.'
-    elif health_score > 80:
-        summary = 'EXCELENTE: Estás em plena harmonia com a tua abundância.'
+        summary = '⚠️ CRÍTICO: O teu equilíbrio financeiro necessita de intervenção urgente.'
+    elif health_score < 60:
+        summary = '⚠️ ATENÇÃO: Estás a consumir capital. Reavalia as tuas prioridades.'
+    elif health_score > 90:
+        summary = '✨ EXCELENTE: Estás em plena harmonia e domínio do teu capital.'
+    elif health_score > 75:
+        summary = '🧘‍♂️ ZEN: O teu ecossistema segue um trilho saudável e equilibrado.'
+    elif health_score > 60:
+        summary = '⚖️ ESTÁVEL: Manténs o controlo, mas há margem para otimização.'
         
     return schemas.ZenInsightsResponse(
         insights=insights[:3],

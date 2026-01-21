@@ -2,10 +2,29 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Zap, TrendingUp, AlertCircle, ChevronRight, BarChart3 } from 'lucide-react';
+import { 
+  Sparkles, Zap, TrendingUp, AlertCircle, ChevronRight, 
+  Target, ShieldCheck, Activity, Ghost, Lightbulb, Compass 
+} from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
 import api from '@/lib/api';
 import { DEMO_INSIGHTS } from '@/lib/mockData';
+
+const InsightIcon = ({ name, size = 20 }: { name: string, size?: number }) => {
+  switch (name) {
+    case 'sparkles': return <Sparkles size={size} />;
+    case 'zap': return <Zap size={size} />;
+    case 'trending-up': return <TrendingUp size={size} />;
+    case 'alert-circle': return <AlertCircle size={size} />;
+    case 'target': return <Target size={size} />;
+    case 'shield-check': return <ShieldCheck size={size} />;
+    case 'activity': return <Activity size={size} />;
+    case 'ghost': return <Ghost size={size} />;
+    case 'lightbulb': return <Lightbulb size={size} />;
+    case 'compass': return <Compass size={size} />;
+    default: return <Sparkles size={size} />;
+  }
+};
 
 export default function ZenInsights() {
   const { t } = useTranslation();
@@ -20,7 +39,7 @@ export default function ZenInsights() {
           api.get('/insights/')
         ]);
         const user = profileRes.data;
-        const hasActiveSub = user.subscription_status === 'active';
+        const hasActiveSub = ['active', 'trialing'].includes(user.subscription_status);
         if (!hasActiveSub) {
           setData(DEMO_INSIGHTS);
         } else {
@@ -101,40 +120,42 @@ export default function ZenInsights() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.1 + 0.2 }}
             className={`p-8 rounded-[32px] bg-slate-900/40 border border-white/5 hover:bg-slate-900/60 transition-all group relative overflow-hidden ${
-              insight.type === 'expense' ? 'border-red-500/20 bg-red-500/5' : ''
+              insight.type === 'warning' ? 'border-amber-500/20 bg-amber-500/5' : 
+              insight.type === 'danger' ? 'border-red-500/20 bg-red-500/5' : ''
             }`}
           >
-            {insight.type === 'expense' && (
-              <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-[60px] -z-10 rounded-full" />
+            {(insight.type === 'warning' || insight.type === 'danger') && (
+              <div className={`absolute top-0 right-0 w-32 h-32 ${insight.type === 'danger' ? 'bg-red-500/10' : 'bg-amber-500/10'} blur-[60px] -z-10 rounded-full`} />
             )}
             
             <div className="flex items-center gap-4 mb-6">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                insight.type === 'income' ? 'bg-emerald-500/10 text-emerald-400' :
-                insight.type === 'expense' ? 'bg-red-500/10 text-red-400' :
+                insight.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
+                insight.type === 'warning' ? 'bg-amber-500/10 text-amber-400' :
+                insight.type === 'danger' ? 'bg-red-500/10 text-red-400' :
                 'bg-blue-500/10 text-blue-400'
               }`}>
-                {insight.type === 'income' ? <TrendingUp size={20} /> :
-                 insight.type === 'expense' ? <AlertCircle size={20} /> :
-                 <Zap size={20} />}
+                <InsightIcon name={insight.icon} size={20} />
               </div>
               <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-white">
                 {insight.title}
               </h4>
-              {insight.type === 'expense' && (
+              {insight.type === 'danger' && (
                 <div className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
               )}
             </div>
 
-            <p className="text-sm font-medium text-slate-300 italic mb-8 leading-relaxed">
+            <p className="text-sm font-medium text-slate-300 italic mb-8 leading-relaxed min-h-[60px]">
               "{insight.message}"
             </p>
 
             <div className="flex items-center justify-between">
               <span className={`text-[9px] font-black uppercase tracking-widest ${
-                insight.type === 'expense' ? 'text-red-400' : 'text-emerald-400'
+                insight.type === 'danger' ? 'text-red-400' : 
+                insight.type === 'warning' ? 'text-amber-400' : 'text-emerald-400'
               }`}>
-                {insight.type === 'expense' ? 'Ação Requerida' : 'Zen Analytics'}
+                {insight.type === 'danger' ? 'Ação Requerida' : 
+                 insight.type === 'warning' ? 'Atenção' : 'Zen Analytics'}
               </span>
               <ChevronRight size={14} className="text-slate-600 group-hover:translate-x-1 transition-transform" />
             </div>

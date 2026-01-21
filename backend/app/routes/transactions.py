@@ -56,13 +56,17 @@ async def get_transactions(request: Request, skip: int = 0, limit: int = 100, db
     
     return db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id
-    ).order_by(models.Transaction.transaction_date.desc()).offset(skip).limit(limit).all()
+    ).order_by(models.Transaction.created_at.desc()).offset(skip).limit(limit).all()
 
 @router.post('/', response_model=schemas.TransactionResponse)
 async def create_transaction(request: Request, transaction_in: schemas.TransactionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail='Workspace not found')
+    
+    # Validar que a data não é no futuro
+    if transaction_in.transaction_date > date.today():
+        raise HTTPException(status_code=400, detail='Não são permitidas transações com data no futuro.')
     
     new_transaction = models.Transaction(
         **transaction_in.dict(),
@@ -87,6 +91,11 @@ async def update_transaction(request: Request, transaction_id: UUID, transaction
         raise HTTPException(status_code=404, detail='Transação não encontrada')
     
     update_data = transaction_in.dict(exclude_unset=True)
+    
+    # Validar que a nova data não é no futuro
+    if 'transaction_date' in update_data and update_data['transaction_date'] > date.today():
+        raise HTTPException(status_code=400, detail='Não são permitidas transações com data no futuro.')
+
     for field, value in update_data.items():
         setattr(db_transaction, field, value)
     

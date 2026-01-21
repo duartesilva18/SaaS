@@ -7,15 +7,27 @@ load_dotenv()
 class Settings(BaseSettings):
     PROJECT_NAME: str = 'SaaS Gestão Financeira'
     DATABASE_URL: str = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/saas_db')
-    SECRET_KEY: str = os.getenv('SECRET_KEY', 'secret_key_super_secreta_para_desenvolvimento')
+    
+    # SECRET_KEY deve ser fornecido via env, sem valor padrão em produção
+    _secret_key = os.getenv('SECRET_KEY')
+    if not _secret_key or _secret_key == 'secret_key_super_secreta_para_desenvolvimento':
+        if os.getenv('ENVIRONMENT') == 'production':
+            raise ValueError("SECRET_KEY deve ser configurado em produção!")
+        _secret_key = 'secret_key_super_secreta_para_desenvolvimento'
+    SECRET_KEY: str = _secret_key
+    
     ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     STRIPE_API_KEY: str = os.getenv('STRIPE_API_KEY', '')
     STRIPE_WEBHOOK_SECRET: str = os.getenv('STRIPE_WEBHOOK_SECRET', '')
     
-    WHATSAPP_TOKEN: str = os.getenv('WHATSAPP_TOKEN', '')
-    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv('WHATSAPP_PHONE_NUMBER_ID', '')
+    WHATSAPP_TOKEN: str = os.getenv('WHATSAPP_TOKEN', '').strip().strip('"')
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv('WHATSAPP_PHONE_NUMBER_ID', '').strip().strip('"')
+    WHATSAPP_VERIFY_TOKEN: str = os.getenv('WHATSAPP_VERIFY_TOKEN', 'zen_secret_token').strip().strip('"')
+    
+    TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '').strip().strip('"')
+    TELEGRAM_WEBHOOK_SECRET: str = os.getenv('TELEGRAM_WEBHOOK_SECRET', '').strip().strip('"')
     
     MAIL_USERNAME: str = os.getenv('MAIL_USERNAME', '').strip()
     MAIL_PASSWORD: str = os.getenv('MAIL_PASSWORD', '').strip()
@@ -28,6 +40,9 @@ class Settings(BaseSettings):
     
     GOOGLE_CLIENT_ID: str = os.getenv('GOOGLE_CLIENT_ID', '')
     FRONTEND_URL: str = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+    
+    # Configuração de ambiente
+    ENVIRONMENT: str = os.getenv('ENVIRONMENT', 'development')
 
 settings = Settings()
 

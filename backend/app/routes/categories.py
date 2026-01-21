@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from ..core.dependencies import get_db
 from ..core.audit import log_action
@@ -68,6 +69,18 @@ async def create_category(request: Request, category_in: schemas.CategoryBase, d
     if not workspace:
         raise HTTPException(status_code=404, detail='Workspace not found')
     
+    # Bloquear criação de novas categorias de Investimento ou Fundo de Emergência
+    if category_in.vault_type in ['investment', 'emergency']:
+        existing_special = db.query(models.Category).filter(
+            models.Category.workspace_id == workspace.id,
+            models.Category.vault_type == category_in.vault_type
+        ).first()
+        if existing_special:
+            raise HTTPException(
+                status_code=400, 
+                detail=f'Já tens uma categoria de {"Investimento" if category_in.vault_type == "investment" else "Fundo de Emergência"}. Não podes criar múltiplas.'
+            )
+    
     new_category = models.Category(
         **category_in.dict(),
         workspace_id=workspace.id
@@ -81,7 +94,10 @@ async def create_category(request: Request, category_in: schemas.CategoryBase, d
         return new_category
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail='Erro ao criar categoria. Verifique se o nome já existe.')
+        error_msg = str(e)
+        if "unique_name" in error_msg or "already exists" in error_msg:
+            raise HTTPException(status_code=400, detail='Já existe uma categoria com este nome neste workspace.')
+        raise HTTPException(status_code=400, detail=f'Erro ao criar categoria: {error_msg}')
 
 @router.patch('/{category_id}', response_model=schemas.CategoryResponse)
 async def update_category(request: Request, category_id: UUID, category_in: schemas.CategoryUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -95,6 +111,28 @@ async def update_category(request: Request, category_id: UUID, category_in: sche
         raise HTTPException(status_code=404, detail='Categoria não encontrada')
     
     update_data = category_in.dict(exclude_unset=True)
+    
+    # Bloquear alteração de vault_type para investment/emergency se já existir
+    if 'vault_type' in update_data and update_data['vault_type'] != db_category.vault_type:
+        if update_data['vault_type'] in ['investment', 'emergency']:
+            existing_special = db.query(models.Category).filter(
+                models.Category.workspace_id == workspace.id,
+                models.Category.vault_type == update_data['vault_type'],
+                models.Category.id != category_id
+            ).first()
+            if existing_special:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f'Já tens uma categoria de {"Investimento" if update_data["vault_type"] == "investment" else "Fundo de Emergência"}.'
+                )
+        
+        # Bloquear alteração de uma categoria especial para 'none' se quisermos manter a regra rígida
+        if db_category.vault_type in ['investment', 'emergency'] and update_data['vault_type'] == 'none':
+             raise HTTPException(
+                status_code=400, 
+                detail='Não podes transformar uma categoria de Cofre numa categoria normal.'
+            )
+
     for field, value in update_data.items():
         setattr(db_category, field, value)
     
@@ -115,8 +153,14 @@ async def delete_category(request: Request, category_id: UUID, db: Session = Dep
     if not db_category:
         raise HTTPException(status_code=404, detail='Categoria não encontrada')
     
-    if db_category.is_default:
-        raise HTTPException(status_code=400, detail='Não é possível eliminar categorias padrão')
+    # Proteção especial: Só bloqueia se for categoria padrão OU se for uma das categorias de cofre principais
+    is_protected_name = (
+        (db_category.vault_type == 'investment' and db_category.name.upper() in ['INVESTIMENTO', 'INVESTIMENTOS']) or
+        (db_category.vault_type == 'emergency' and db_category.name.upper() in ['FUNDO DE EMERGÊNCIA', 'FUNDO DE EMERGENCIA'])
+    )
+    
+    if db_category.is_default or is_protected_name:
+        raise HTTPException(status_code=400, detail='Não é possível eliminar as categorias de Cofre principais ou categorias padrão')
     
     has_transactions = db.query(models.Transaction).filter(models.Transaction.category_id == category_id).first()
     if has_transactions:
@@ -128,4 +172,49 @@ async def delete_category(request: Request, category_id: UUID, db: Session = Dep
     
     await log_action(db, action='delete_category', user_id=current_user.id, details=f'name: {name}', request=request)
     return {'message': 'Categoria eliminada com sucesso'}
+
+@router.post('/bulk-delete')
+async def bulk_delete_categories(request: Request, category_ids: List[UUID], db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace not found')
+    
+    categories = db.query(models.Category).filter(
+        models.Category.id.in_(category_ids),
+        models.Category.workspace_id == workspace.id
+    ).all()
+    
+    if not categories:
+        return {'message': 'Nenhuma categoria encontrada para eliminar'}
+    
+    deleted_count = 0
+    errors = []
+    
+    for cat in categories:
+        # Mesmas proteções do delete individual
+        is_protected_name = (
+            (cat.vault_type == 'investment' and cat.name.upper() in ['INVESTIMENTO', 'INVESTIMENTOS']) or
+            (cat.vault_type == 'emergency' and cat.name.upper() in ['FUNDO DE EMERGÊNCIA', 'FUNDO DE EMERGENCIA'])
+        )
+        
+        if cat.is_default or is_protected_name:
+            errors.append(f"Não é possível eliminar '{cat.name}' (categoria protegida)")
+            continue
+            
+        has_transactions = db.query(models.Transaction).filter(models.Transaction.category_id == cat.id).first()
+        if has_transactions:
+            errors.append(f"Não é possível eliminar '{cat.name}' (tem transações associadas)")
+            continue
+            
+        db.delete(cat)
+        deleted_count += 1
+    
+    db.commit()
+    
+    await log_action(db, action='bulk_delete_categories', user_id=current_user.id, details=f'deleted: {deleted_count}, errors: {len(errors)}', request=request)
+    
+    return {
+        'message': f'{deleted_count} categorias eliminadas com sucesso.',
+        'errors': errors
+    }
 

@@ -7,8 +7,9 @@ import LoadingIndicator from '@/components/LoadingIndicator';
 import QuickAddTransaction from '@/components/QuickAddTransaction';
 import { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/LanguageContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
+import { Menu, Sparkles } from 'lucide-react';
 
 export default function DashboardLayout({
   children,
@@ -16,10 +17,14 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const pathname = usePathname();
   const { setCurrency } = useTranslation();
   const { user, loading } = useUser();
   const router = useRouter();
+
+  const isAdminPage = pathname?.startsWith('/admin');
 
   useEffect(() => {
     if (!loading) {
@@ -50,7 +55,7 @@ export default function DashboardLayout({
 
   return (
     <div className="flex bg-[#020617] min-h-screen relative overflow-hidden selection:bg-blue-500/30">
-      {/* Background Glows for all pages */}
+      {/* Background Glows */}
       <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600/5 blur-[120px] rounded-full pointer-events-none" />
       <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-600/5 blur-[120px] rounded-full pointer-events-none" />
 
@@ -60,14 +65,36 @@ export default function DashboardLayout({
 
       <Sidebar 
         isCollapsed={isSidebarCollapsed} 
-        onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+        onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        isMobileOpen={isMobileSidebarOpen}
+        onMobileClose={() => setIsMobileSidebarOpen(false)}
       />
       
-      <main className={`flex-1 transition-all duration-500 ease-[0.16,1,0.3,1] ${isSidebarCollapsed ? 'lg:ml-24' : 'lg:ml-72'} p-6 md:p-12 w-full relative z-10 overflow-y-auto h-screen`}>
-        <div className="max-w-7xl mx-auto">
-          {children}
-        </div>
-      </main>
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile Header */}
+        <header className="lg:hidden flex items-center justify-between p-4 border-b border-white/5 bg-[#020617]/80 backdrop-blur-md sticky top-0 z-40">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg">
+              <Sparkles size={16} />
+            </div>
+            <span className="text-lg font-black tracking-tighter text-white">
+              Finan<span className="text-blue-500 italic">Zen</span>
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsMobileSidebarOpen(true)}
+            className="p-2 text-slate-400 hover:text-white transition-colors"
+          >
+            <Menu size={24} />
+          </button>
+        </header>
+
+        <main className={`flex-1 transition-all duration-500 ease-[0.16,1,0.3,1] ${isSidebarCollapsed ? 'lg:ml-24' : 'lg:ml-72'} relative z-10 overflow-y-auto`}>
+          <div className="w-full px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8">
+            {children}
+          </div>
+        </main>
+      </div>
 
       <QuickAddTransaction />
       <SupportButton />

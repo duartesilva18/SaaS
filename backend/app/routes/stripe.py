@@ -47,43 +47,6 @@ async def create_checkout_session(price_id: str, db: Session = Depends(get_db), 
         logger.error(f'Erro Stripe Checkout: {str(e)}')
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post('/webhook')
-async def stripe_webhook(request: Request, stripe_signature: str = Header(None), db: Session = Depends(get_db)):
-    payload = await request.body()
-    
-    try:
-        if STRIPE_WEBHOOK_SECRET == 'whsec_...':
-            event = stripe.Event.construct_from(await request.json(), stripe.api_key)
-        else:
-            event = stripe.Webhook.construct_event(
-                payload, stripe_signature, STRIPE_WEBHOOK_SECRET
-            )
-    except Exception as e:
-        logger.error(f'Webhook Error: {str(e)}')
-        raise HTTPException(status_code=400, detail=f'Webhook Error: {str(e)}')
-
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        user_id = session.get('client_reference_id')
-        if user_id:
-            user = db.query(models.User).filter(models.User.id == user_id).first()
-            if user:
-                user.subscription_status = 'active'
-                user.stripe_subscription_id = session.get('subscription')
-                db.commit()
-                logger.info(f'Subscription activated for user {user.email}')
-                
-    elif event['type'] == 'customer.subscription.deleted':
-        subscription = event['data']['object']
-        user = db.query(models.User).filter(models.User.stripe_subscription_id == subscription['id']).first()
-        if user:
-            user.subscription_status = 'none'
-            user.stripe_subscription_id = None
-            db.commit()
-            logger.info(f'Subscription canceled for user {user.email}')
-
-    return {'status': 'success'}
-
 @router.post('/portal')
 async def customer_portal(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
@@ -109,10 +72,4 @@ async def get_stripe_invoices(current_user: models.User = Depends(get_current_us
     except Exception as e:
         logger.error(f'Invoices Error: {str(e)}')
         return []
-
-@router.post('/simulate-success')
-async def simulate_success(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    current_user.subscription_status = 'active'
-    db.commit()
-    return {'message': 'Subscription simulated successfully'}
 

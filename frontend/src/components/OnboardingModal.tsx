@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, User, Coins, UserCircle, ArrowRight, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, User, Coins, UserCircle, ArrowRight, Check, AlertCircle, Loader2, BellRing } from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
 import api from '@/lib/api';
 import confetti from 'canvas-confetti';
@@ -43,16 +43,26 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
     e.preventDefault();
     setError('');
 
-    if (!formData.full_name || !formData.phone_number) {
-      setError('Por favor, preenche todos os campos obrigatórios.');
+    // Validação de Nome (Pelo menos dois nomes)
+    const nameParts = formData.full_name.trim().split(/\s+/);
+    if (nameParts.length < 2) {
+      setError('Por favor, introduz o teu primeiro e último nome.');
+      return;
+    }
+
+    // Validação de Telefone (Mínimo de 7 dígitos além do código do país)
+    const cleanPhone = formData.phone_number.replace(/\D/g, '');
+    if (cleanPhone.length < 7) {
+      setError('Por favor, introduz um número de telefone válido.');
       return;
     }
 
     setLoading(true);
     try {
-      const fullPhone = `${formData.country_code}${formData.phone_number.replace(/\s/g, '')}`;
-      await api.put('/auth/me/onboard', {
+      const fullPhone = `${formData.country_code}${cleanPhone}`;
+      await api.post('/auth/onboarding', {
         ...formData,
+        full_name: formData.full_name.trim(),
         phone_number: fullPhone
       });
 
@@ -116,7 +126,7 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
               {/* Full Name */}
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-2">
-                  Nome Completo
+                  Primeiro e Último Nome
                 </label>
                 <div className="relative group">
                   <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={20} />
@@ -171,7 +181,7 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
                     type="tel"
                     required
                     value={formData.phone_number}
-                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value.replace(/\D/g, '') })}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl py-4 px-6 text-white focus:outline-none focus:border-blue-500 transition-all font-medium"
                     placeholder="912 345 678"
                   />
@@ -196,17 +206,43 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
               </div>
 
               {/* Marketing Opt-in */}
-              <div className="flex items-center gap-4 px-4 py-4 bg-slate-950 border border-slate-800 rounded-2xl self-end">
-                <label className="relative flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={formData.marketing_opt_in}
-                    onChange={(e) => setFormData({ ...formData, marketing_opt_in: e.target.checked })}
-                  />
-                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  <span className="ml-4 text-xs font-medium text-slate-300">Quero receber dicas Zen e novidades</span>
-                </label>
+              <div className="md:col-span-2">
+                <div 
+                  onClick={() => setFormData({ ...formData, marketing_opt_in: !formData.marketing_opt_in })}
+                  className={`group flex items-center justify-between p-5 rounded-2xl border transition-all duration-300 cursor-pointer ${
+                    formData.marketing_opt_in 
+                    ? 'bg-blue-600/5 border-blue-500/30' 
+                    : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2.5 rounded-xl transition-colors ${
+                      formData.marketing_opt_in ? 'text-blue-400 bg-blue-400/10' : 'text-slate-600 bg-slate-900'
+                    }`}>
+                      <BellRing size={18} />
+                    </div>
+                    <div>
+                      <p className={`text-xs font-black uppercase tracking-widest transition-colors ${
+                        formData.marketing_opt_in ? 'text-white' : 'text-slate-500'
+                      }`}>
+                        Dicas & Novidades Zen
+                      </p>
+                      <p className="text-[10px] text-slate-600 font-medium italic">
+                        Relatórios e insights exclusivos no teu email.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Minimal Toggle */}
+                  <div className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 relative ${
+                    formData.marketing_opt_in ? 'bg-blue-600' : 'bg-slate-800'
+                  }`}>
+                    <motion.div 
+                      animate={{ x: formData.marketing_opt_in ? 24 : 0 }}
+                      className="w-4 h-4 bg-white rounded-full shadow-sm"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -227,7 +263,7 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-6 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-[24px] font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-blue-900/20 flex items-center justify-center gap-4 text-sm group"
+              className="w-full py-6 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-[24px] font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-blue-900/20 flex items-center justify-center gap-4 text-sm group cursor-pointer"
             >
               {loading ? (
                 <Loader2 size={20} className="animate-spin" />

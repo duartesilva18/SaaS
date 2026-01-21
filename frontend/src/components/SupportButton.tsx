@@ -1,15 +1,36 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MessageCircle, HelpCircle } from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
+import api from '@/lib/api';
 
 export default function SupportButton() {
   const { t } = useTranslation();
-  const whatsappNumber = "351925989577"; // Número de suporte atualizado
+  const [whatsappNumber, setWhatsappNumber] = useState("351925989577");
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await api.get('/api/settings/public');
+        if (res.data && res.data.support_phone) {
+          // Remove tudo o que não seja dígito (remove +, espaços, traços, etc)
+          const cleanNumber = res.data.support_phone.replace(/\D/g, '');
+          console.log('Suporte WhatsApp carregado:', cleanNumber);
+          setWhatsappNumber(cleanNumber);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar número de suporte:', err);
+      }
+    };
+    fetchSettings();
+  }, []);
+
   const message = encodeURIComponent(t.dashboard.support.message);
-  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${message}`;
+  // Garante que o número final no link está perfeitamente limpo
+  const finalNumber = whatsappNumber.replace(/\D/g, '');
+  const whatsappUrl = `https://wa.me/${finalNumber}?text=${message}`;
 
   return (
     <motion.a
@@ -34,4 +55,3 @@ export default function SupportButton() {
     </motion.a>
   );
 }
-

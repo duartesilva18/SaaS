@@ -50,7 +50,7 @@ export default function BillingPage() {
         setIsSimulated(customerId.startsWith('sim_') || customerId.startsWith('test_'));
         setSubData({
           status: userStatus,
-          plan_name: userStatus === 'active' ? 'Plano Pro' : 'Plano Base'
+          plan_name: ['active', 'trialing'].includes(userStatus) ? 'Plano Pro' : 'Plano Base'
         });
       } catch (err) {
         console.error("Erro ao carregar dados de faturação:", err);
@@ -75,11 +75,22 @@ export default function BillingPage() {
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'paid': return 'text-emerald-400 bg-emerald-500/10';
-      case 'open': return 'text-amber-400 bg-amber-500/10';
-      case 'void': return 'text-slate-500 bg-slate-500/10';
-      default: return 'text-red-400 bg-red-500/10';
+    switch (status.toLowerCase()) {
+      case 'paid': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+      case 'open': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+      case 'unpaid': return 'text-red-400 bg-red-500/10 border-red-500/20';
+      case 'void': return 'text-slate-500 bg-slate-500/10 border-slate-500/20';
+      default: return 'text-red-400 bg-red-500/10 border-red-500/20';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'paid': return 'Pago';
+      case 'open': return 'Pendente';
+      case 'unpaid': return 'Falhou / Não Pago';
+      case 'void': return 'Anulado';
+      default: return status.toUpperCase();
     }
   };
 
@@ -93,7 +104,7 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-12 pb-20 px-4 md:px-8">
+    <div className="max-w-[1400px] mx-auto space-y-12 pb-20 px-4 md:px-8">
       {/* Header */}
       <section className="relative">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -185,44 +196,59 @@ export default function BillingPage() {
               <p className="text-slate-500 font-medium">{b.noInvoices}</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800">
-                    <th className="pb-6 text-[10px] font-black uppercase tracking-widest text-slate-500">{b.table.date}</th>
-                    <th className="pb-6 text-[10px] font-black uppercase tracking-widest text-slate-500">{b.table.amount}</th>
-                    <th className="pb-6 text-[10px] font-black uppercase tracking-widest text-slate-500">{b.table.status}</th>
-                    <th className="pb-6 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">{b.table.invoice}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50 text-sm">
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} className="group hover:bg-white/5 transition-colors">
-                      <td className="py-6 font-medium text-slate-300">
-                        {new Date(inv.created * 1000).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </td>
-                      <td className="py-6 font-black text-white">
-                        {formatCurrency(inv.amount_paid / 100)}
-                      </td>
-                      <td className="py-6">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusColor(inv.status)}`}>
-                          {inv.status}
-                        </span>
-                      </td>
-                      <td className="py-6 text-right">
-                        <a 
-                          href={inv.invoice_pdf} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-blue-500 hover:text-blue-400 font-black text-[10px] uppercase tracking-widest group-hover:translate-x-1 transition-transform"
+            <div className="overflow-x-auto custom-scrollbar -mx-4 md:mx-0">
+              <div className="min-w-full inline-block align-middle">
+                <div className="border border-slate-800/50 rounded-[32px] overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-800/30">
+                        <th className="py-5 px-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 border-b border-slate-800/50">{b.table.date}</th>
+                        <th className="py-5 px-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 border-b border-slate-800/50">{b.table.amount}</th>
+                        <th className="py-5 px-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 border-b border-slate-800/50">{b.table.status}</th>
+                        <th className="py-5 px-8 text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 border-b border-slate-800/50">{b.table.invoice}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/30 text-sm bg-slate-900/20">
+                      {invoices.map((inv, idx) => (
+                        <motion.tr 
+                          key={inv.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="group hover:bg-white/[0.03] transition-all"
                         >
-                          PDF <Download size={14} />
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          <td className="py-6 px-8 font-medium text-slate-300">
+                            <div className="flex items-center gap-3">
+                              <Calendar size={14} className="text-blue-500/50" />
+                              <span className="tabular-nums">
+                                {new Date(inv.created * 1000).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-6 px-8 font-black text-white text-base tracking-tighter">
+                            {formatCurrency(inv.amount_paid / 100)}
+                          </td>
+                          <td className="py-6 px-8">
+                            <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${getStatusColor(inv.status)}`}>
+                              {getStatusLabel(inv.status)}
+                            </span>
+                          </td>
+                          <td className="py-6 px-8 text-right">
+                            <a 
+                              href={inv.invoice_pdf} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-blue-600 text-slate-400 hover:text-white rounded-xl transition-all font-black text-[9px] uppercase tracking-widest group/link border border-white/5"
+                            >
+                              PDF <Download size={12} className="group-hover/link:translate-y-0.5 transition-transform" />
+                            </a>
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </div>
