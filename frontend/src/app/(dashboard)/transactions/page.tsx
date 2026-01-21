@@ -74,6 +74,13 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     fetchData();
+    
+    // Atualizar dados automaticamente a cada 30 segundos
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000); // 30 segundos
+    
+    return () => clearInterval(interval);
   }, []);
 
   const filteredTransactions = useMemo(() => {
@@ -110,6 +117,12 @@ export default function TransactionsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Validar que uma categoria foi selecionada
+      if (!formData.category_id || formData.category_id === '') {
+        setToastInfo({ message: "Por favor, seleciona uma categoria.", type: 'error', isVisible: true });
+        return;
+      }
+
       const selectedDate = new Date(formData.transaction_date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -119,12 +132,24 @@ export default function TransactionsPage() {
         return;
       }
 
+      // Verificar se a categoria selecionada existe
+      const selectedCategory = categories.find(c => c.id === formData.category_id);
+      if (!selectedCategory) {
+        setToastInfo({ message: "Categoria inválida. Por favor, seleciona novamente.", type: 'error', isVisible: true });
+        return;
+      }
+
+      // Debug: verificar categoria selecionada
+      console.log('Categoria selecionada:', selectedCategory.name, 'Tipo:', selectedCategory.type, 'ID:', formData.category_id);
+
       const payload = {
         amount_cents: Math.round(parseFloat(formData.amount) * 100),
         description: formData.description,
-        category_id: formData.category_id || null,
+        category_id: formData.category_id, // Garantir que não é null
         transaction_date: formData.transaction_date
       };
+
+      console.log('Payload enviado:', payload);
 
       if (editingTransaction) {
         await api.patch(`/transactions/${editingTransaction.id}`, payload);
@@ -143,7 +168,8 @@ export default function TransactionsPage() {
         category_id: '',
         transaction_date: new Date().toISOString().split('T')[0]
       });
-      fetchData();
+      // Atualizar dados imediatamente após criar/editar
+      await fetchData();
     } catch (err) {
       console.error(err);
       setToastInfo({ message: "Erro ao processar transação.", type: 'error', isVisible: true });
@@ -153,13 +179,23 @@ export default function TransactionsPage() {
   const handleDelete = async () => {
     if (!transactionToDelete) return;
     try {
-      await api.delete(`/transactions/${transactionToDelete}`);
+      // Garantir que o ID está no formato correto
+      const transactionId = String(transactionToDelete).trim();
+      console.log('Eliminando transação com ID:', transactionId);
+      
+      await api.delete(`/transactions/${transactionId}`);
       setToastInfo({ message: "Transação eliminada.", type: 'success', isVisible: true });
       setTransactionToDelete(null);
       setSelectedTransaction(null);
-      fetchData();
-    } catch (err) {
-      console.error(err);
+      // Atualizar dados imediatamente após eliminar
+      await fetchData();
+    } catch (err: any) {
+      console.error('Erro ao eliminar transação:', err);
+      console.error('ID da transação:', transactionToDelete);
+      console.error('Resposta do erro:', err.response?.data);
+      const errorMessage = err.response?.data?.detail || err.message || 'Erro ao eliminar transação.';
+      setToastInfo({ message: errorMessage, type: 'error', isVisible: true });
+      setTransactionToDelete(null);
     }
   };
 
@@ -229,7 +265,8 @@ export default function TransactionsPage() {
             <button
               onClick={() => {
                 setEditingTransaction(null);
-                setFormData({ amount: '', description: '', category_id: categories[0]?.id || '', transaction_date: new Date().toISOString().split('T')[0] });
+                // Não pré-selecionar categoria - deixar o utilizador escolher
+                setFormData({ amount: '', description: '', category_id: '', transaction_date: new Date().toISOString().split('T')[0] });
                 setShowAddModal(true);
               }}
               className="flex items-center gap-3 px-8 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-xs transition-all shadow-2xl shadow-blue-600/30 group active:scale-95 cursor-pointer h-full"
@@ -509,12 +546,54 @@ export default function TransactionsPage() {
                         className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-10 text-white appearance-none focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
                       >
                         <option value="">Selecionar Categoria</option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
-                        ))}
+                        {/* Separar receitas e despesas para facilitar seleção */}
+                        <optgroup label="Receitas" className="bg-slate-900">
+                          {categories.filter(c => c.type === 'income').map((c) => (
+                            <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Despesas" className="bg-slate-900">
+                          {categories.filter(c => c.type === 'expense' && c.vault_type === 'none').map((c) => (
+                            <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Investimentos e Poupança" className="bg-slate-900">
+                          {categories.filter(c => c.type === 'expense' && c.vault_type !== 'none').map((c) => (
+                            <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                          ))}
+                        </optgroup>
                       </select>
                       <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                     </div>
+                    {/* Mostrar tipo da categoria selecionada para confirmação */}
+                    {formData.category_id && (
+                      <div className="flex items-center gap-2 text-xs">
+                        {(() => {
+                          const selectedCat = categories.find(c => c.id === formData.category_id);
+                          if (selectedCat) {
+                            return (
+                              <>
+                                <span className="text-slate-500">Tipo:</span>
+                                <span className={`font-black uppercase tracking-widest ${
+                                  selectedCat.type === 'income' ? 'text-emerald-400' : 'text-red-400'
+                                }`}>
+                                  {selectedCat.type === 'income' ? 'Receita' : 'Despesa'}
+                                </span>
+                                {selectedCat.vault_type !== 'none' && (
+                                  <>
+                                    <span className="text-slate-500">•</span>
+                                    <span className="text-amber-400 font-black uppercase tracking-widest">
+                                      {selectedCat.vault_type === 'investment' ? 'Investimento' : 'Emergência'}
+                                    </span>
+                                  </>
+                                )}
+                              </>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
                   </div>
 
                   <button

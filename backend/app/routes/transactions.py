@@ -68,6 +68,15 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
     if transaction_in.transaction_date > date.today():
         raise HTTPException(status_code=400, detail='Não são permitidas transações com data no futuro.')
     
+    # Validar que a categoria existe e pertence ao workspace
+    if transaction_in.category_id:
+        category = db.query(models.Category).filter(
+            models.Category.id == transaction_in.category_id,
+            models.Category.workspace_id == workspace.id
+        ).first()
+        if not category:
+            raise HTTPException(status_code=400, detail='Categoria não encontrada ou não pertence ao teu workspace.')
+    
     new_transaction = models.Transaction(
         **transaction_in.dict(),
         workspace_id=workspace.id
@@ -76,7 +85,7 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
     db.commit()
     db.refresh(new_transaction)
     
-    await log_action(db, action='create_transaction', user_id=current_user.id, details=f'amount: {new_transaction.amount_cents}', request=request)
+    await log_action(db, action='create_transaction', user_id=current_user.id, details=f'amount: {new_transaction.amount_cents}, category_id: {new_transaction.category_id}', request=request)
     return new_transaction
 
 @router.patch('/{transaction_id}', response_model=schemas.TransactionResponse)

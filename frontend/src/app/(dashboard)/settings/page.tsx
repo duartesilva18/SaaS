@@ -6,7 +6,7 @@ import {
   User, Phone, Coins, UserCircle, 
   CreditCard, Download, 
   Trash2, CheckCircle2, AlertCircle, Loader2,
-  ChevronRight, BellRing, Sparkles,   Globe, Check, Send, ExternalLink, ChevronRight, BellRing, Sparkles
+  ChevronRight, BellRing, Sparkles, Globe, Check, Send, ExternalLink
 } from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
 import api from '@/lib/api';
@@ -126,10 +126,15 @@ export default function SettingsPage() {
     }
     try {
       const res = await api.post('/stripe/portal');
-      window.location.href = res.data.url;
+      if (res.data.url) {
+        window.location.href = res.data.url;
+      } else {
+        throw new Error('URL do portal não retornada');
+      }
     } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || 'Erro ao abrir portal de faturação.');
+      console.error('Erro ao abrir portal Stripe:', err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Erro ao abrir portal de faturação.';
+      alert(errorMsg);
     }
   };
 

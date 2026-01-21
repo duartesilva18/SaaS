@@ -14,9 +14,11 @@ import { useSearchParams } from 'next/navigation';
 import Toast from '@/components/Toast';
 import confetti from 'canvas-confetti';
 import { Crown, Star, Check, Sparkles as SparklesIcon, Zap as ZapIcon, ArrowRightCircle, X, Loader2 } from 'lucide-react';
+import { useUser } from '@/lib/UserContext';
 
 export default function DashboardPage() {
   const { t, formatCurrency } = useTranslation();
+  const { refreshUser } = useUser();
   const searchParams = useSearchParams();
   const [isPro, setIsPro] = useState(false);
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
@@ -43,20 +45,85 @@ export default function DashboardPage() {
     if (sessionId) {
       setIsProcessingUpgrade(true);
       
-      // Delay de 2s para garantir que o browser carregou tudo e o Stripe processou
-      setTimeout(() => {
-        setIsProcessingUpgrade(false);
-        setShowUpgradeSuccess(true);
-        confetti({
-          particleCount: 200,
-          spread: 100,
-          origin: { y: 0.6 },
-          colors: ['#3b82f6', '#fbbf24', '#ffffff']
-        });
-      }, 2000);
-
-      // Limpar a URL sem recarregar a página
-      window.history.replaceState({}, '', '/dashboard');
+      // Verificar status da subscrição através do novo endpoint
+      const verifyAndActivate = async (retryCount = 0) => {
+        try {
+          // Verificar a sessão no Stripe e atualizar subscrição
+          const verifyRes = await api.get(`/stripe/verify-session/${sessionId}`);
+          
+          if (verifyRes.data.success && verifyRes.data.is_active) {
+            // Subscrição ativa! Recarregar dados do utilizador
+            await refreshUser();
+            const profileRes = await api.get('/auth/me');
+            const user = profileRes.data;
+            
+            // Atualizar estado para remover modo demo e banners
+            setIsPro(true);
+            setShowPaywall(false); // Fechar paywall se estiver aberto
+            setShowUpgradeSuccess(true);
+            setIsProcessingUpgrade(false);
+            
+            // Limpar a URL sem recarregar a página
+            window.history.replaceState({}, '', '/dashboard');
+            
+            // Confetti de celebração
+            confetti({
+              particleCount: 200,
+              spread: 100,
+              origin: { y: 0.6 },
+              colors: ['#3b82f6', '#fbbf24', '#ffffff']
+            });
+            
+            // Recarregar dados do dashboard para refletir modo Pro
+            // Chamar fetchData novamente para atualizar transações/categorias reais
+            setTimeout(async () => {
+              try {
+                const [transRes, catRes] = await Promise.all([
+                  api.get('/transactions/'),
+                  api.get('/categories/')
+                ]);
+                // Os dados serão atualizados automaticamente no próximo render
+                // Mas podemos forçar uma atualização se necessário
+              } catch (err) {
+                console.error('Erro ao recarregar dados:', err);
+              }
+            }, 500);
+            
+            // Retornar para evitar continuar o retry
+            return;
+          } else if (retryCount < 5) {
+            // Ainda não está completo, tentar novamente
+            setTimeout(() => verifyAndActivate(retryCount + 1), 1500);
+          } else {
+            // Máximo de tentativas alcançado
+            setIsProcessingUpgrade(false);
+            setToast({
+              show: true,
+              message: 'O pagamento está a ser processado. A subscrição será ativada em breve.',
+              type: 'success'
+            });
+            window.history.replaceState({}, '', '/dashboard');
+          }
+        } catch (err: any) {
+          console.error('Erro ao verificar sessão:', err);
+          
+          // Se o erro for 404 ou similar, pode ser que o webhook ainda não processou
+          if (retryCount < 5 && err.response?.status !== 403) {
+            setTimeout(() => verifyAndActivate(retryCount + 1), 1500);
+          } else {
+            setIsProcessingUpgrade(false);
+            setToast({
+              show: true,
+              message: 'Erro ao verificar pagamento. Por favor, recarrega a página.',
+              type: 'error'
+            });
+            window.history.replaceState({}, '', '/dashboard');
+          }
+        }
+      };
+      
+      // Começar verificação após pequeno delay para dar tempo ao webhook
+      setTimeout(() => verifyAndActivate(), 2000);
     }
 
     const fetchData = async () => {
@@ -575,7 +642,18 @@ export default function DashboardPage() {
                 interval="preserveStartEnd"
                 minTickGap={20}
               />
-              <YAxis hide domain={[0, (dataMax) => Math.max(dataMax, stats.dailyAllowance * 1.2)]} />
+              <YAxis 
+                hide 
+                domain={[
+                  0, 
+                  (dataMax: number) => {
+                    const maxSpending = dataMax || 0;
+                    const dailyLimit = stats.dailyAllowance || 0;
+                    // Garantir que o domínio sempre inclui o limite diário com margem
+                    return Math.max(maxSpending * 1.1, dailyLimit * 1.2, 10);
+                  }
+                ]} 
+              />
               <Tooltip 
                 cursor={{ stroke: '#3b82f6', strokeWidth: 1, strokeDasharray: '5 5' }}
                 contentStyle={{ 
@@ -589,6 +667,26 @@ export default function DashboardPage() {
                 formatter={(value: number) => [formatCurrency(value), 'Gasto']}
                 labelFormatter={(label) => `Dia ${label}`}
               />
+              {/* ReferenceLine ANTES do Area para garantir que está visível */}
+              {stats.dailyAllowance > 0 && (
+                <ReferenceLine 
+                  y={stats.dailyAllowance} 
+                  stroke="#ef4444" 
+                  strokeDasharray="5 5" 
+                  strokeOpacity={0.9}
+                  strokeWidth={2}
+                  isFront={true}
+                  label={{ 
+                    position: 'topRight', 
+                    value: `LIMITE: ${formatCurrency(stats.dailyAllowance)}`, 
+                    fill: '#ef4444', 
+                    fontSize: 9, 
+                    fontWeight: '900',
+                    textTransform: 'uppercase',
+                    offset: 10
+                  }} 
+                />
+              )}
               <Area 
                 type="monotone" 
                 dataKey="amount" 
@@ -598,23 +696,6 @@ export default function DashboardPage() {
                 fill="url(#colorSpend)" 
                 animationDuration={2000}
               />
-              {stats.dailyAllowance > 0 && (
-                <ReferenceLine 
-                  y={stats.dailyAllowance} 
-                  stroke="#ef4444" 
-                  strokeDasharray="5 5" 
-                  strokeOpacity={0.8}
-                  strokeWidth={2}
-                  label={{ 
-                    position: 'top', 
-                    value: `LIMITE: ${formatCurrency(stats.dailyAllowance)}`, 
-                    fill: '#ef4444', 
-                    fontSize: 9, 
-                    fontWeight: '900',
-                    textTransform: 'uppercase'
-                  }} 
-                />
-              )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
