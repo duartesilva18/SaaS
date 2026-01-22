@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import auth, categories, transactions, stripe as stripe_routes, insights, recurring, admin, goals
 from .webhooks import stripe as stripe_webhooks, whatsapp as whatsapp_webhooks, telegram as telegram_webhooks
+from .webhooks.telegram import setup_bot_commands
 from .models.database import Base, SystemSetting
 from .core.dependencies import engine, get_db
 from .core.limiter import limiter
@@ -11,12 +12,20 @@ from sqlalchemy.orm import Session
 import logging
 import os
 
-# Configuração de logging
+# Configuração de logging com UTF-8 para evitar erros de encoding no Windows
+import sys
+if sys.platform == 'win32':
+    # Configurar stdout/stderr para UTF-8 no Windows
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('security.log'),
+        logging.FileHandler('security.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -157,6 +166,14 @@ app.include_router(stripe_routes.router)
 app.include_router(stripe_webhooks.router)
 app.include_router(whatsapp_webhooks.router)
 app.include_router(telegram_webhooks.router)
+
+# Configurar comandos e informações do bot Telegram ao iniciar
+try:
+    from .webhooks.telegram import setup_bot_commands, setup_bot_info
+    setup_bot_commands()
+    setup_bot_info()
+except Exception as e:
+    logger.warning(f"Não foi possível configurar bot Telegram: {e}")
 
 # Novo endpoint público para as definições básicas do sistema
 @app.get('/api/settings/public')

@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, date, timezone
 from typing import Optional, Dict, List
 import unicodedata
+from difflib import SequenceMatcher
 
 from ..core.config import settings
 from ..core.dependencies import get_db
@@ -51,6 +52,56 @@ def normalize_text(text: str) -> str:
     # Remove símbolos e converte para minúsculas
     text = re.sub(r'[^\w\s]', '', text.lower())
     return text
+
+def similarity_score(str1: str, str2: str) -> float:
+    """Calcula similaridade entre duas strings (0.0 a 1.0)"""
+    return SequenceMatcher(None, str1, str2).ratio()
+
+def find_best_category_match(user_input: str, categories: List[models.Category], threshold: float = 0.6) -> Optional[models.Category]:
+    """
+    Encontra a categoria mais similar ao input do utilizador usando similaridade de strings.
+    Retorna a categoria se a similaridade for >= threshold, caso contrário None.
+    """
+    user_input_normalized = normalize_text(user_input)
+    best_match = None
+    best_score = 0.0
+    
+    for cat in categories:
+        cat_name_normalized = normalize_text(cat.name)
+        
+        # Calcular similaridade
+        score = similarity_score(user_input_normalized, cat_name_normalized)
+        
+        # Também verificar se uma está contida na outra (match parcial)
+        if user_input_normalized in cat_name_normalized or cat_name_normalized in user_input_normalized:
+            score = max(score, 0.8)  # Boost para matches parciais
+        
+        # Verificar palavras individuais (útil para "aliments" vs "alimentacao")
+        user_words = set(user_input_normalized.split())
+        cat_words = set(cat_name_normalized.split())
+        if user_words and cat_words:
+            # Se há palavras em comum, aumentar score
+            common_words = user_words.intersection(cat_words)
+            if common_words:
+                word_score = len(common_words) / max(len(user_words), len(cat_words))
+                score = max(score, word_score * 0.9)
+        
+        # Verificar prefixo comum (útil para "aliments" vs "alimentacao")
+        min_len = min(len(user_input_normalized), len(cat_name_normalized), 7)
+        if min_len >= 4:
+            if user_input_normalized[:min_len] == cat_name_normalized[:min_len]:
+                score = max(score, 0.75)  # Boost para prefixos comuns
+        
+        if score > best_score:
+            best_score = score
+            best_match = cat
+    
+    # Só retornar se a similaridade for suficientemente alta
+    if best_score >= threshold:
+        logger.info(f"✓ Categoria encontrada por similaridade: '{best_match.name}' (score: {best_score:.2f}) para '{user_input}'")
+        return best_match
+    
+    return None
 
 def find_similar_transaction(text: str, workspace_id: uuid.UUID, db: Session, tipo: str) -> Optional[uuid.UUID]:
     """
@@ -192,52 +243,33 @@ def parse_transaction(text: str, workspace: models.Workspace, db: Session) -> Op
             category_part_clean = re.sub(r'\s*\d+[.,\s]*\d*\s*(?:€|eur|euros|e)?', '', category_part, flags=re.IGNORECASE).strip()
             category_part_normalized = normalize_text(category_part_clean)
             
-            # Procurar categoria correspondente
-            for cat in categories:
-                cat_name_normalized = normalize_text(cat.name)
-                # Match exato ou parcial
-                if cat_name_normalized == category_part_normalized or cat_name_normalized in category_part_normalized or category_part_normalized in cat_name_normalized:
-                    specified_category = cat
-                    specified_category_name = cat.name
-                    logger.info(f"✓ Categoria especificada após hífen: '{cat.name}' (id: {cat.id})")
-                    break
+            # Usar similaridade de strings para encontrar a melhor correspondência
+            specified_category = find_best_category_match(category_part_clean, categories, threshold=0.6)
+            if specified_category:
+                specified_category_name = specified_category.name
     
-    # Se não encontrou com hífen, verificar match direto no texto completo
+    # Se não encontrou com hífen, verificar match direto no texto completo usando similaridade
     if not specified_category:
-        # Mapeamento de palavras-chave comuns para categorias
-        category_keywords = {
-            'alimentação': ['alimento', 'alimentos', 'comida', 'restaurante', 'supermercado', 'mercearia', 'alimentar'],
-            'transportes': ['transporte', 'uber', 'bolt', 'taxi', 'gasolina', 'combustível', 'combustivel', 'metro', 'autocarro', 'bus'],
-            'habitação': ['casa', 'renda', 'luz', 'água', 'agua', 'internet', 'telefone', 'electricidade', 'eletricidade'],
-            'saúde': ['saude', 'médico', 'medico', 'farmacia', 'farmacia', 'hospital', 'medicina', 'clinica'],
-            'entretenimento': ['cinema', 'netflix', 'spotify', 'jogo', 'jogos', 'diversão', 'diversao', 'lazer'],
-            'salário': ['salario', 'ordenado', 'vencimento', 'recebi', 'ganhei']
-        }
-        
-        # Verificar match direto com nomes de categorias
+        # Primeiro, verificar match exato (mais rápido)
         for cat in categories:
             cat_name_normalized = normalize_text(cat.name)
-            # Match exato da categoria no texto
             if cat_name_normalized in text_lower_normalized:
                 specified_category = cat
                 specified_category_name = cat.name
                 logger.info(f"✓ Categoria especificada na mensagem (match direto): '{cat.name}' (id: {cat.id})")
                 break
         
-        # Se não encontrou match direto, verificar palavras-chave
+        # Se não encontrou match exato, usar similaridade em palavras do texto
         if not specified_category:
-            for cat in categories:
-                cat_name_normalized = normalize_text(cat.name)
-                keywords = category_keywords.get(cat_name_normalized, [])
-                # Verificar se alguma palavra-chave está no texto
-                for keyword in keywords:
-                    if keyword in text_lower_normalized:
-                        specified_category = cat
-                        specified_category_name = cat.name
-                        logger.info(f"✓ Categoria especificada na mensagem (via palavra-chave '{keyword}'): '{cat.name}' (id: {cat.id})")
+            text_words = text_lower_normalized.split()
+            for word in text_words:
+                if len(word) >= 4:  # Só verificar palavras com pelo menos 4 caracteres
+                    match = find_best_category_match(word, categories, threshold=0.7)
+                    if match:
+                        specified_category = match
+                        specified_category_name = match.name
+                        logger.info(f"✓ Categoria encontrada por similaridade na palavra '{word}': '{match.name}'")
                         break
-                if specified_category:
-                    break
     
     # Processar cada valor encontrado
     for i, valor_match in enumerate(valor_matches):
@@ -486,7 +518,7 @@ Categorias: {categories_text}
 
 Responde APENAS com o nome exato da categoria:"""
         
-        logger.info(f"Consultando Gemini: '{original_text}' → {categories_list}")
+        logger.info(f"Consultando Gemini: '{original_text}' -> {categories_list}")
         
         # Usar apenas gemini-flash-latest (mais rápido)
         try:
@@ -547,11 +579,11 @@ Responde APENAS com o nome exato da categoria:"""
         logger.error(f"Erro na categorização IA: {str(e)}")
         return None
 
-def send_telegram_msg(chat_id: int, text: str, reply_markup: Optional[Dict] = None):
+def send_telegram_msg(chat_id: int, text: str, reply_markup: Optional[Dict] = None, pin_message: bool = False):
     """Envia mensagem para o Telegram"""
     if not settings.TELEGRAM_BOT_TOKEN:
         logger.warning("TELEGRAM_BOT_TOKEN não configurado")
-        return
+        return None
     
     url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
     
@@ -569,6 +601,24 @@ def send_telegram_msg(chat_id: int, text: str, reply_markup: Optional[Dict] = No
     try:
         response = requests.post(url, json=payload, timeout=5)
         response.raise_for_status()
+        result = response.json()
+        
+        # Fixar mensagem se solicitado
+        if pin_message and result.get('ok') and result.get('result', {}).get('message_id'):
+            message_id = result['result']['message_id']
+            try:
+                pin_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/pinChatMessage"
+                pin_payload = {
+                    'chat_id': chat_id,
+                    'message_id': message_id,
+                    'disable_notification': True
+                }
+                requests.post(pin_url, json=pin_payload, timeout=5)
+                logger.info(f"Mensagem fixada: message_id={message_id}")
+            except Exception as e:
+                logger.warning(f"Erro ao fixar mensagem: {str(e)}")
+        
+        return result
     except requests.exceptions.HTTPError as e:
         # Tentar sem parse_mode se falhar
         if response.status_code == 400:
@@ -577,12 +627,105 @@ def send_telegram_msg(chat_id: int, text: str, reply_markup: Optional[Dict] = No
             try:
                 response = requests.post(url, json=payload, timeout=5)
                 response.raise_for_status()
+                return response.json()
             except Exception as e2:
                 logger.error(f"Erro ao enviar mensagem Telegram (sem parse_mode): {str(e2)}")
         else:
             logger.error(f"Erro HTTP ao enviar mensagem Telegram: {response.status_code} - {response.text}")
     except Exception as e:
         logger.error(f"Erro ao enviar mensagem Telegram: {str(e)}")
+    
+    return None
+
+def setup_bot_commands():
+    """Configura os comandos do bot no Telegram"""
+    if not settings.TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN não configurado - não é possível configurar comandos")
+        return
+    
+    commands = [
+        {
+            "command": "start",
+            "description": "🚀 Iniciar o bot e associar conta"
+        },
+        {
+            "command": "info",
+            "description": "📖 Ver guia de utilização e exemplos"
+        },
+        {
+            "command": "help",
+            "description": "❓ Ver ajuda e comandos disponíveis"
+        },
+        {
+            "command": "clear",
+            "description": "🧹 Limpar transações pendentes"
+        }
+    ]
+    
+    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/setMyCommands"
+    payload = {
+        'commands': commands
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=5)
+        response.raise_for_status()
+        logger.info("Comandos do bot configurados com sucesso")
+    except Exception as e:
+        logger.error(f"Erro ao configurar comandos do bot: {str(e)}")
+
+def setup_bot_info():
+    """Configura informações adicionais do bot (descrição, about, etc.)"""
+    if not settings.TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN não configurado - não é possível configurar informações")
+        return
+    
+    base_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
+    
+    # Configurar descrição curta (aparece no perfil do bot)
+    try:
+        short_desc = "🧘‍♂️ O teu ecossistema financeiro inteligente. Regista transações em segundos."
+        requests.post(
+            f"{base_url}/setMyShortDescription",
+            json={'short_description': short_desc},
+            timeout=5
+        )
+        logger.info("Descrição curta do bot configurada")
+    except Exception as e:
+        logger.warning(f"Erro ao configurar descrição curta: {str(e)}")
+    
+    # Configurar descrição completa (about)
+    try:
+        full_desc = (
+            "✨ FinanZen Bot ✨\n\n"
+            "💎 Regista transações financeiras rapidamente através do Telegram.\n\n"
+            "🎯 Funcionalidades:\n"
+            "• Categorização automática com IA\n"
+            "• Suporte a múltiplas transações\n"
+            "• Especifica categoria: Descrição - Categoria Valor€\n"
+            "• Confirmação opcional de transações\n\n"
+            "🧘‍♂️ Domina o teu dinheiro com simplicidade."
+        )
+        requests.post(
+            f"{base_url}/setMyDescription",
+            json={'description': full_desc},
+            timeout=5
+        )
+        logger.info("Descrição completa do bot configurada")
+    except Exception as e:
+        logger.warning(f"Erro ao configurar descrição completa: {str(e)}")
+    
+    # Configurar nome do bot (se ainda não estiver configurado)
+    try:
+        bot_name = "FinanZen Bot"
+        requests.post(
+            f"{base_url}/setMyName",
+            json={'name': bot_name},
+            timeout=5
+        )
+        logger.info("Nome do bot configurado")
+    except Exception as e:
+        logger.warning(f"Erro ao configurar nome do bot: {str(e)}")
 
 @router.post('/webhook')
 @limiter.limit('30/minute')
@@ -686,7 +829,19 @@ async def telegram_webhook(
                 
                 # Editar mensagem
                 tipo_emoji = "💸" if pending.amount_cents < 0 else "💰"
-                send_telegram_msg(chat_id, f"{tipo_emoji} <b>Transação confirmada!</b>\n\n📝 {pending.description}\n💰 {abs(pending.amount_cents)/100:.2f}€")
+                tipo_texto = "Despesa" if pending.amount_cents < 0 else "Receita"
+                category = db.query(models.Category).filter(models.Category.id == pending.category_id).first()
+                category_name = category.name if category else "Outros"
+                send_telegram_msg(chat_id, 
+                    f"✨ <b>Transação Confirmada!</b> ✨\n"
+                    f"━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📝 <b>Descrição:</b>\n"
+                    f"<code>{pending.description}</code>\n\n"
+                    f"{tipo_emoji} <b>Valor:</b> <code>{abs(pending.amount_cents)/100:.2f}€</code>\n"
+                    f"🏷️ <b>Categoria:</b> {category_name}\n"
+                    f"📊 <b>Tipo:</b> {tipo_texto}\n\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🧘‍♂️ <i>Registado no teu ecossistema Zen.</i>")
                 
                 logger.info("Callback de confirmacao processado com sucesso")
                 return {'status': 'confirmed'}
@@ -727,12 +882,18 @@ async def telegram_webhook(
                     except Exception as e:
                         logger.error(f"Erro ao responder callback query: {str(e)}")
                     
-                    send_telegram_msg(chat_id, "❌ Transação cancelada.")
+                    send_telegram_msg(chat_id, 
+                        "🚫 <b>Transação Cancelada</b>\n\n"
+                        "💡 A transação foi cancelada e não foi registada.\n\n"
+                        "🧘‍♂️ <i>Podes enviar uma nova transação quando quiseres.</i>")
                     logger.info("Mensagem de cancelamento enviada ao utilizador")
                     return {'status': 'cancelled'}
                 else:
                     logger.warning(f"Transação pendente não encontrada: hex={pending_id_hex}, chat_id={chat_id}")
-                    send_telegram_msg(chat_id, "❌ Transação não encontrada.")
+                    send_telegram_msg(chat_id, 
+                        "⚠️ <b>Transação não encontrada</b>\n\n"
+                        "💡 Esta transação já foi processada ou não existe.\n\n"
+                        "🧘‍♂️ <i>Podes enviar uma nova transação.</i>")
                     return {'status': 'not_found'}
             
             return {'status': 'ok'}
@@ -750,7 +911,10 @@ async def telegram_webhook(
         
         # Verificar rate limit
         if not check_rate_limit(str(chat_id)):
-            send_telegram_msg(chat_id, "⚠️ Muitas mensagens. Aguarda um momento.")
+            send_telegram_msg(chat_id, 
+                "⏱️ <b>Muitas mensagens</b>\n\n"
+                "💡 Aguarda um momento antes de enviar mais transações.\n\n"
+                "🧘‍♂️ <i>Paz financeira requer paciência.</i>")
             return {'status': 'rate_limited'}
         
         # Comando /start
@@ -762,34 +926,86 @@ async def telegram_webhook(
             if not user:
                 # Primeira vez, pedir email
                 send_telegram_msg(chat_id, 
-                    "🧘‍♂️ <b>Bem-vindo ao Ecossistema FinanZen.</b>\n\n"
-                    "Para começarmos, envia por favor o <b>email</b> que utilizas na plataforma FinanZen.")
+                    "✨ <b>Bem-vindo ao Finan</b><i>Zen</i> ✨\n\n"
+                    "🧘‍♂️ O teu <b>ecossistema financeiro</b> está à distância de uma mensagem.\n\n"
+                    "📧 Para começarmos, envia o <b>email</b> que utilizas na plataforma FinanZen.\n\n"
+                    "💎 <i>Domina o teu dinheiro com simplicidade.</i>")
                 return {'status': 'email_required'}
             else:
-                # Já associado
-                send_telegram_msg(chat_id,
-                    f"✅ <b>Olá de novo!</b>\n\n"
-                    f"Podes enviar transações como:\n"
-                    f"• Almoço 15€\n"
-                    f"• Salário 1000€\n"
-                    f"• Gasolina 50€\n\n"
-                    f"Envia /info para mais ajuda.")
+                # Já associado - enviar mensagem de boas-vindas e fixar
+                welcome_msg = (
+                    f"✨ <b>Olá de novo, Mestre!</b> ✨\n\n"
+                    f"💎 O teu <b>ecossistema Zen</b> está pronto.\n\n"
+                    f"📝 <b>Envia transações como:</b>\n"
+                    f"• 🍽️ Almoço 15€\n"
+                    f"• 💰 Salário 1000€\n"
+                    f"• ⛽ Gasolina 50€\n\n"
+                    f"📖 Envia <code>/info</code> para mais ajuda.\n\n"
+                    f"🧘‍♂️ <i>Paz financeira em cada mensagem.</i>"
+                )
+                send_telegram_msg(chat_id, welcome_msg, pin_message=True)
                 return {'status': 'ok'}
         
         # Comandos /info e /help
         if text.startswith('/info') or text.startswith('/help'):
             help_text = (
-                "📖 <b>Como usar o bot:</b>\n\n"
-                "Envia mensagens no formato:\n"
-                "• <code>Descrição Valor€</code>\n\n"
-                "<b>Exemplos:</b>\n"
-                "• Almoço 15€\n"
-                "• Salário 1000€\n"
-                "• Ginásio 30€\n"
-                "• Almoço 25€ Gasolina 10€ (múltiplas)\n\n"
-                "O bot categoriza automaticamente usando IA e histórico."
+                "✨ <b>Guia do Mestre Finan</b><i>Zen</i> ✨\n\n"
+                "📝 <b>Formato de mensagem:</b>\n"
+                "<code>Descrição Valor€</code>\n\n"
+                "💡 <b>Exemplos:</b>\n"
+                "• 🍽️ Almoço 15€\n"
+                "• 💰 Salário 1000€\n"
+                "• 🏋️ Ginásio 30€\n"
+                "• 🍽️ Almoço 25€ ⛽ Gasolina 10€\n\n"
+                "🎯 <b>Funcionalidades:</b>\n"
+                "• Categorização automática com IA\n"
+                "• Especifica categoria: <code>Descrição - Categoria Valor€</code>\n"
+                "• Múltiplas transações numa mensagem\n\n"
+                "🧘‍♂️ <i>Simplicidade é a chave do controlo financeiro.</i>"
             )
             send_telegram_msg(chat_id, help_text)
+            return {'status': 'ok'}
+        
+        # Comando /clear - Limpar transações pendentes
+        if text.startswith('/clear'):
+            logger.info(f"Comando /clear recebido de chat_id={chat_id}")
+            user = db.query(models.User).filter(models.User.phone_number == str(chat_id)).first()
+            if not user:
+                send_telegram_msg(chat_id, 
+                    "⚠️ <b>Não autorizado</b>\n\n"
+                    "💡 Envia <code>/start</code> para começar.")
+                return {'status': 'unauthorized'}
+            
+            workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == user.id).first()
+            if not workspace:
+                send_telegram_msg(chat_id, 
+                    "⚠️ <b>Workspace não encontrado</b>\n\n"
+                    "💡 Por favor, contacta o suporte.")
+                return {'status': 'error'}
+            
+            # Eliminar todas as transações pendentes do utilizador
+            pending_transactions = db.query(models.TelegramPendingTransaction).filter(
+                models.TelegramPendingTransaction.chat_id == str(chat_id),
+                models.TelegramPendingTransaction.workspace_id == workspace.id
+            ).all()
+            
+            count = len(pending_transactions)
+            if count > 0:
+                for pending in pending_transactions:
+                    db.delete(pending)
+                db.commit()
+                logger.info(f"Eliminadas {count} transações pendentes para chat_id={chat_id}")
+                send_telegram_msg(chat_id,
+                    f"✨ <b>Limpeza Concluída!</b> ✨\n\n"
+                    f"🧹 <b>{count} transação(ões) pendente(s)</b> foram eliminadas.\n\n"
+                    f"💎 O teu ecossistema Zen está limpo.\n\n"
+                    f"🧘‍♂️ <i>Podes começar a registar novas transações.</i>")
+            else:
+                send_telegram_msg(chat_id,
+                    "✨ <b>Já está limpo!</b> ✨\n\n"
+                    "💎 Não há transações pendentes para limpar.\n\n"
+                    "🧘‍♂️ <i>O teu ecossistema Zen está organizado.</i>")
+            
             return {'status': 'ok'}
         
         # Processar email (associação)
@@ -801,7 +1017,10 @@ async def telegram_webhook(
             # Validar formato
             if not validate_email(email_limpo):
                 logger.warning(f"Email inválido: {email_limpo}")
-                send_telegram_msg(chat_id, "⚠️ Por favor, envia um email válido.")
+                send_telegram_msg(chat_id, 
+                    "⚠️ <b>Email inválido</b>\n\n"
+                    "📧 Por favor, envia um email válido.\n\n"
+                    "💡 <i>Exemplo: o-teu-email@exemplo.com</i>")
                 return {'status': 'invalid_email'}
             
             # Procurar utilizador
@@ -810,15 +1029,19 @@ async def telegram_webhook(
             if not user:
                 # Resposta genérica para prevenir email enumeration
                 send_telegram_msg(chat_id, 
-                    "✅ Email recebido. Se estiver associado a uma conta Pro, já podes começar a usar o bot.")
+                    "✨ <b>Email recebido</b> ✨\n\n"
+                    "💎 Se estiveres associado a uma conta <b>Pro</b>, já podes começar a usar o bot.\n\n"
+                    "🧘‍♂️ <i>O teu ecossistema financeiro está quase pronto.</i>")
                 logger.warning(f"Tentativa de associação com email não registado: {email_limpo[:5]}***")
                 return {'status': 'not_found'}
             
             # Verificar se é conta Pro
-            if user.subscription_status not in ['active', 'trialing']:
+            if user.subscription_status not in ['active', 'trialing', 'cancel_at_period_end']:
                 send_telegram_msg(chat_id, 
-                    "⚠️ Esta funcionalidade requer conta Pro.\n\n"
-                    "Faz upgrade na plataforma para usar o bot Telegram.")
+                    "💎 <b>Conta Pro Necessária</b>\n\n"
+                    "✨ Esta funcionalidade requer uma conta <b>Pro</b>.\n\n"
+                    "🚀 Faz upgrade na plataforma para desbloqueares o bot Telegram.\n\n"
+                    "🧘‍♂️ <i>Transforma a gestão financeira numa experiência Zen.</i>")
                 return {'status': 'pro_required'}
             
             # Verificar conflitos (um chat_id só pode estar associado a um email)
@@ -829,8 +1052,10 @@ async def telegram_webhook(
             if existing_user and existing_user.email != email_limpo:
                 # Já está associado a outro email
                 send_telegram_msg(chat_id, 
-                    "⚠️ Este Telegram já está associado a outra conta.\n\n"
-                    f"Conta atual: {existing_user.email[:3]}***")
+                    "⚠️ <b>Telegram já associado</b>\n\n"
+                    f"📧 Este Telegram já está associado a outra conta:\n"
+                    f"<code>{existing_user.email[:3]}***</code>\n\n"
+                    "💡 <i>Um Telegram só pode estar associado a uma conta.</i>")
                 return {'status': 'already_associated'}
             
             # Associar Telegram (armazenar chat_id em phone_number)
@@ -842,12 +1067,17 @@ async def telegram_webhook(
             workspace_check = db.query(models.Workspace).filter(models.Workspace.owner_id == user.id).first()
             logger.info(f"Conta Telegram associada: email={email_limpo[:10]}***, user_id={user.id}, workspace_id={workspace_check.id if workspace_check else None}, chat_id={chat_id}")
             
-            send_telegram_msg(chat_id, 
-                f"✅ <b>Conta associada com sucesso!</b>\n\n"
-                f"Conta: {user.email[:3]}***\n\n"
-                f"Agora podes enviar transações como:\n"
-                f"• Almoço 15€\n"
-                f"• Salário 1000€")
+            success_msg = (
+                f"✨ <b>Conta associada com sucesso!</b> ✨\n\n"
+                f"💎 <b>Conta:</b> <code>{user.email[:3]}***</code>\n\n"
+                f"🎯 <b>Agora podes enviar transações:</b>\n"
+                f"• 🍽️ Almoço 15€\n"
+                f"• 💰 Salário 1000€\n"
+                f"• ⛽ Gasolina 50€\n\n"
+                f"📖 Envia <code>/info</code> para ver todos os formatos.\n\n"
+                f"🧘‍♂️ <i>O teu ecossistema Zen está ativo.</i>"
+            )
+            send_telegram_msg(chat_id, success_msg, pin_message=True)
             return {'status': 'ok'}
         
         # Procurar User
@@ -861,23 +1091,31 @@ async def telegram_webhook(
             logger.info(f"Workspace do user Telegram: {workspace_check.id if workspace_check else None}")
         if not user:
             send_telegram_msg(chat_id, 
-                "⚠️ Para começares, envia o teu <b>email</b> que utilizas na plataforma FinanZen.\n\n"
-                "Ou envia /start para começar.")
+                "✨ <b>Bem-vindo ao Finan</b><i>Zen</i> ✨\n\n"
+                "📧 Para começares, envia o teu <b>email</b> que utilizas na plataforma.\n\n"
+                "💡 Ou envia <code>/start</code> para começar.\n\n"
+                "🧘‍♂️ <i>Domina o teu dinheiro com simplicidade.</i>")
             return {'status': 'unauthorized'}
         
         logger.info(f"Buscando workspace para user_id={user.id}")
         workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == user.id).first()
         logger.info(f"Workspace encontrado: {workspace is not None} (id: {workspace.id if workspace else None})")
         if not workspace:
-            send_telegram_msg(chat_id, "❌ Workspace não encontrado.")
+            send_telegram_msg(chat_id, 
+                "⚠️ <b>Workspace não encontrado</b>\n\n"
+                "💡 Por favor, contacta o suporte.\n\n"
+                "🧘‍♂️ <i>Estamos aqui para ajudar.</i>")
             return {'status': 'error'}
         
         # Processar fotos (desativado por enquanto)
         if 'photo' in message:
             send_telegram_msg(chat_id, 
-                "❌ Processamento de imagens indisponível.\n\n"
-                "Por favor, escreve a transação em texto.\n\n"
-                "<b>Exemplo:</b> Almoço 15€")
+                "📸 <b>Processamento de imagens</b>\n\n"
+                "⚠️ Esta funcionalidade está temporariamente indisponível.\n\n"
+                "📝 Por favor, escreve a transação em texto:\n"
+                "• <code>Almoço 15€</code>\n"
+                "• <code>Gasolina 50€</code>\n\n"
+                "🧘‍♂️ <i>Simplicidade é a chave.</i>")
             return {'status': 'error'}
         
         # Processar texto
@@ -889,11 +1127,14 @@ async def telegram_webhook(
             if not parsed:
                 logger.warning(f"Não foi possível fazer parse da mensagem: '{text}'")
                 send_telegram_msg(chat_id, 
-                    "❌ Não consegui entender a mensagem.\n\n"
-                    "<b>Tenta formatos como:</b>\n"
-                    "• Almoço 15€\n"
-                    "• Gasolina 50€\n"
-                    "• Recebi 500€")
+                    "🤔 <b>Não consegui entender</b>\n\n"
+                    "💡 <b>Tenta formatos como:</b>\n"
+                    "• 🍽️ <code>Almoço 15€</code>\n"
+                    "• ⛽ <code>Gasolina 50€</code>\n"
+                    "• 💰 <code>Recebi 500€</code>\n"
+                    "• 🍽️ <code>Almoço - Alimentação 25€</code>\n\n"
+                    "📖 Envia <code>/info</code> para ver todos os formatos.\n\n"
+                    "🧘‍♂️ <i>Simplicidade é a chave.</i>")
                 return {'status': 'error'}
             
             # Processar múltiplas transações
@@ -951,15 +1192,18 @@ async def telegram_webhook(
                         pending_id_hex = pending.id.hex[:16]
                         reply_markup = {
                             "inline_keyboard": [[
-                                {"text": "✅ Confirmar", "callback_data": f"confirm_{pending_id_hex}"},
-                                {"text": "❌ Cancelar", "callback_data": f"cancel_{pending_id_hex}"}
+                                {"text": "✨ Confirmar", "callback_data": f"confirm_{pending_id_hex}"},
+                                {"text": "🚫 Cancelar", "callback_data": f"cancel_{pending_id_hex}"}
                             ]]
                         }
                         send_telegram_msg(chat_id, message_text, reply_markup)
                 
                 if user.telegram_auto_confirm:
                     db.commit()
-                    send_telegram_msg(chat_id, f"✅ {created_count} transação(ões) criada(s)!")
+                    send_telegram_msg(chat_id, 
+                        f"✨ <b>{created_count} Transação(ões) Criada(s)!</b> ✨\n\n"
+                        f"💎 Todas as transações foram registadas automaticamente.\n\n"
+                        f"🧘‍♂️ <i>O teu ecossistema Zen está atualizado.</i>")
                 else:
                     db.commit()
                 
@@ -994,11 +1238,17 @@ async def telegram_webhook(
                 logger.info("Transacao commitada com sucesso (auto_confirm)")
                 
                 tipo_emoji = "💸" if amount_cents < 0 else "💰"
+                tipo_texto = "Despesa" if amount_cents < 0 else "Receita"
                 send_telegram_msg(chat_id, 
-                    f"{tipo_emoji} <b>Registado!</b>\n\n"
-                    f"📝 {parsed['description']}\n"
-                    f"💰 {abs(parsed['amount']):.2f}€\n"
-                    f"🏷️ {category_name}")
+                    f"✨ <b>Transação Registada!</b> ✨\n"
+                    f"━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📝 <b>Descrição:</b>\n"
+                    f"<code>{parsed['description']}</code>\n\n"
+                    f"{tipo_emoji} <b>Valor:</b> <code>{abs(parsed['amount']):.2f}€</code>\n"
+                    f"🏷️ <b>Categoria:</b> {category_name}\n"
+                    f"📊 <b>Tipo:</b> {tipo_texto}\n\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🧘‍♂️ <i>Registado no teu ecossistema Zen.</i>")
             else:
                 # Criar TelegramPendingTransaction
                 pending = models.TelegramPendingTransaction(
@@ -1014,20 +1264,26 @@ async def telegram_webhook(
                 
                 # Enviar mensagem com botões de confirmação
                 tipo_emoji = "💸" if amount_cents < 0 else "💰"
+                tipo_texto = "Despesa" if amount_cents < 0 else "Receita"
+                # Usar separadores visuais para melhor apresentação
                 message_text = (
-                    f"{tipo_emoji} <b>Nova transação</b>\n\n"
-                    f"📝 {parsed['description']}\n"
-                    f"💰 {abs(parsed['amount']):.2f}€\n"
-                    f"🏷️ {category_name}\n\n"
-                    f"Confirma?"
+                    f"✨ <b>Nova Transação</b> ✨\n"
+                    f"━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📝 <b>Descrição:</b>\n"
+                    f"<code>{parsed['description']}</code>\n\n"
+                    f"{tipo_emoji} <b>Valor:</b> <code>{abs(parsed['amount']):.2f}€</code>\n"
+                    f"🏷️ <b>Categoria:</b> {category_name}\n"
+                    f"📊 <b>Tipo:</b> {tipo_texto}\n\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ Confirma esta transação?"
                 )
                 
                 # Usar UUID curto no callback_data (limite 64 bytes)
                 pending_id_hex = pending.id.hex[:16]
                 reply_markup = {
                     "inline_keyboard": [[
-                        {"text": "✅ Confirmar", "callback_data": f"confirm_{pending_id_hex}"},
-                        {"text": "❌ Cancelar", "callback_data": f"cancel_{pending_id_hex}"}
+                        {"text": "✨ Confirmar", "callback_data": f"confirm_{pending_id_hex}"},
+                        {"text": "🚫 Cancelar", "callback_data": f"cancel_{pending_id_hex}"}
                     ]]
                 }
                 send_telegram_msg(chat_id, message_text, reply_markup)
