@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import { 
   Plus, Search, ArrowUpRight, ArrowDownRight, 
@@ -30,8 +31,9 @@ interface Category {
   color_hex: string;
 }
 
-export default function TransactionsPage() {
+function TransactionsPageContent() {
   const { t, formatCurrency, currency } = useTranslation();
+  const searchParams = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,27 @@ export default function TransactionsPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Verificar parâmetros de URL para abrir modal de cofre
+  useEffect(() => {
+    const action = searchParams.get('action');
+    const categoryId = searchParams.get('category');
+    const type = searchParams.get('type');
+    
+    if (action && categoryId && type === 'vault' && categories.length > 0) {
+      const category = categories.find(c => c.id === categoryId);
+      if (category) {
+        setFormData(prev => ({
+          ...prev,
+          category_id: categoryId,
+          description: action === 'add' ? `Depósito em ${category.name}` : `Resgate de ${category.name}`
+        }));
+        setShowAddModal(true);
+        // Limpar URL
+        window.history.replaceState({}, '', '/transactions');
+      }
+    }
+  }, [searchParams, categories]);
+
   const filteredTransactions = useMemo(() => {
     return [...transactions]
       .filter(t => {
@@ -124,6 +147,12 @@ export default function TransactionsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Validar que o valor foi inserido
+      if (!formData.amount || formData.amount.trim() === '' || parseFloat(formData.amount) <= 0) {
+        setToastInfo({ message: "Por favor, insere um valor válido maior que zero.", type: 'error', isVisible: true });
+        return;
+      }
+
       // Validar que uma categoria foi selecionada
       if (!formData.category_id || formData.category_id === '') {
         setToastInfo({ message: "Por favor, seleciona uma categoria.", type: 'error', isVisible: true });
@@ -184,20 +213,65 @@ export default function TransactionsPage() {
       // Permitir que o utilizador crie transações com amount positivo para categorias de vault
       // e ajustar o analytics para tratar isso corretamente
       
-      if (selectedCategory.type === 'expense') {
-        // Para categorias normais de despesa, amount é negativo
-        // Para categorias de vault, se for resgate (selecionado no grupo "Receitas"), amount é positivo
-        // Como não temos essa informação direta, vamos manter a lógica original por agora
-        amount_cents = -Math.abs(amount_cents);
-      } else {
+      if (selectedCategory.type === 'income') {
+        // Receita normal ou resgate de vault
         amount_cents = Math.abs(amount_cents);
+      } else {
+        // Despesa normal ou depósito em vault
+        amount_cents = -Math.abs(amount_cents);
+      }
+      
+      // Se é resgate de vault (amount positivo e categoria de vault), verificar saldo disponível
+      if (isVaultCategory && amount_cents > 0) {
+        // Calcular saldo atual do vault
+        const vaultTransactions = transactions.filter(t => {
+          const cat = categories.find(c => c.id === t.category_id);
+          return cat && cat.id === selectedCategory.id;
+        });
+        
+        // Calcular saldo: depósitos (negativos) aumentam, resgates (positivos) diminuem
+        const vaultBalance = vaultTransactions.reduce((balance, t) => {
+          if (t.amount_cents < 0) {
+            return balance + Math.abs(t.amount_cents); // Depósito
+          } else {
+            return balance - t.amount_cents; // Resgate
+          }
+        }, 0);
+        
+        if (amount_cents > vaultBalance) {
+          const available = (vaultBalance / 100).toFixed(2);
+          setToastInfo({ 
+            message: `Saldo insuficiente no ${selectedCategory.name}. Disponível: ${formatCurrency(parseFloat(available))}`, 
+            type: 'error', 
+            isVisible: true 
+          });
+          return;
+        }
+      }
+
+      // Garantir que category_id é null se vazio, e validar formato
+      const categoryId = formData.category_id && formData.category_id.trim() !== '' 
+        ? formData.category_id 
+        : null;
+
+      // Validar que amount_cents não é zero
+      if (amount_cents === 0) {
+        setToastInfo({ message: "O valor da transação não pode ser zero.", type: 'error', isVisible: true });
+        return;
+      }
+
+      // Validar formato da data
+      if (!formData.transaction_date) {
+        setToastInfo({ message: "Por favor, seleciona uma data.", type: 'error', isVisible: true });
+        return;
       }
 
       const payload = {
         amount_cents: amount_cents,
-        description: formData.description,
-        category_id: formData.category_id, // Garantir que não é null
-        transaction_date: formData.transaction_date
+        description: formData.description || null,
+        category_id: categoryId,
+        transaction_date: formData.transaction_date,
+        is_installment: false
       };
 
       console.log('Payload enviado:', payload);
@@ -221,9 +295,37 @@ export default function TransactionsPage() {
       });
       // Atualizar dados imediatamente após criar/editar
       await fetchData();
-    } catch (err) {
-      console.error(err);
-      setToastInfo({ message: "Erro ao processar transação.", type: 'error', isVisible: true });
+    } catch (err: any) {
+      console.error('Erro ao processar transação:', err);
+      console.error('Resposta do erro:', err.response?.data);
+      
+      // Extrair mensagem de erro mais específica
+      let errorMessage = "Erro ao processar transação.";
+      
+      if (err.response?.status === 422) {
+        // Erro de validação - tentar extrair detalhes
+        const detail = err.response?.data?.detail;
+        if (Array.isArray(detail)) {
+          // Pydantic retorna array de erros
+          const firstError = detail[0];
+          if (firstError?.loc && firstError?.msg) {
+            const field = firstError.loc[firstError.loc.length - 1];
+            errorMessage = `Erro no campo ${field}: ${firstError.msg}`;
+          } else {
+            errorMessage = detail.map((e: any) => e.msg || e).join(', ');
+          }
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        } else if (detail) {
+          errorMessage = JSON.stringify(detail);
+        }
+      } else if (err.response?.status === 400) {
+        errorMessage = err.response?.data?.detail || "Dados inválidos. Verifica os campos preenchidos.";
+      } else if (err.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      }
+      
+      setToastInfo({ message: errorMessage, type: 'error', isVisible: true });
     }
   };
 
@@ -831,5 +933,13 @@ export default function TransactionsPage() {
         onClose={() => setToastInfo({ ...toastInfo, isVisible: false })}
       />
     </motion.div>
+  );
+}
+
+export default function TransactionsPage() {
+  return (
+    <Suspense fallback={<TransactionSkeleton />}>
+      <TransactionsPageContent />
+    </Suspense>
   );
 }

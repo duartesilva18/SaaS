@@ -54,17 +54,27 @@ import api from '@/lib/api';
 
 const menuSections = (t: any) => [
   {
-    title: "Principal",
+    title: "Visão Geral",
     items: [
       {
-        name: t.dashboard.sidebar.dashboard,
+        name: "Dashboard",
         href: '/dashboard',
         icon: LayoutDashboard,
       },
       {
-        name: t.dashboard.sidebar.analytics,
+        name: "Análise Pro",
         href: '/analytics',
         icon: PieChart,
+      }
+    ]
+  },
+  {
+    title: "Poupança & Investimento",
+    items: [
+      {
+        name: "Cofre de Reservas",
+        href: '/vault',
+        icon: Landmark,
       },
       {
         name: "Metas de Poupança",
@@ -75,50 +85,55 @@ const menuSections = (t: any) => [
         name: "Simulador FIRE",
         href: '/fire',
         icon: Zap,
+      }
+    ]
+  },
+  {
+    title: "Gestão Financeira",
+    items: [
+      {
+        name: "Transações",
+        href: '/transactions',
+        icon: Receipt,
       },
+      {
+        name: "Categorias",
+        href: '/categories',
+        icon: Tag,
+      },
+      {
+        name: "Subscrições Mensais",
+        href: '/recurring',
+        icon: Clock,
+      }
+    ]
+  },
+  {
+    title: "Ferramentas",
+    items: [
       {
         name: "Bot Telegram",
         href: 'https://t.me/FinanZenApp_bot',
         icon: Send,
         isExternal: true
-      }
-    ]
-  },
-  {
-    title: "Controlo",
-    items: [
-      {
-        name: t.dashboard.sidebar.recurring,
-        href: '/recurring',
-        icon: Clock,
       },
       {
-        name: t.dashboard.sidebar.transactions,
-        href: '/transactions',
-        icon: Receipt,
-      },
-      {
-        name: t.dashboard.sidebar.categories,
-        href: '/categories',
-        icon: Tag,
-      }
-    ]
-  },
-  {
-    title: "Sistema",
-    items: [
-      {
-        name: t.dashboard.sidebar.guide,
+        name: "Guia do Mestre",
         href: '/guide',
         icon: HelpCircle,
-      },
+      }
+    ]
+  },
+  {
+    title: "Configurações",
+    items: [
       {
-        name: t.dashboard.sidebar.billing,
+        name: "Faturação",
         href: '/billing',
         icon: CreditCard,
       },
       {
-        name: t.dashboard.sidebar.settings,
+        name: "Definições",
         href: '/settings',
         icon: Settings,
       }
@@ -312,7 +327,7 @@ export default function Sidebar({
     items: section.items.filter((item: any) => {
       if (item.adminOnly) return user?.is_admin === true;
       if (isPro) return true;
-      return item.href === '/dashboard' || item.href === '/analytics' || item.href === '/settings' || item.href === '/billing' || item.href === '/guide';
+      return item.href === '/dashboard' || item.href === '/analytics' || item.href === '/settings' || item.href === '/billing' || item.href === '/guide' || item.href === '/vault' || item.href === '/transactions' || item.href === '/categories' || item.href === '/recurring';
     })
   })).filter((section) => section.items.length > 0);
 

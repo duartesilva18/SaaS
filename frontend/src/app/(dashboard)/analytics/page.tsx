@@ -11,7 +11,8 @@ import {
   TrendingUp, TrendingDown, Target, Zap, 
   Activity, PieChart as PieChartIcon, Calendar,
   ArrowUpRight, ArrowDownRight, Sparkles, Brain, Info,
-  ShieldCheck, Clock, History, Landmark, CheckCircle2, CreditCard
+  ShieldCheck, Clock, History, Landmark, CheckCircle2, CreditCard,
+  Plus, Minus, Wallet, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/lib/LanguageContext';
@@ -34,6 +35,9 @@ export default function AnalyticsPage() {
   const [isEvoInfoOpen, setIsEvoInfoOpen] = useState(false);
   const [isVaultInfoOpen, setIsVaultInfoOpen] = useState(false);
   const [recurringToConfirm, setRecurringToConfirm] = useState<any>(null);
+  const [vaultModal, setVaultModal] = useState<{ open: boolean; category: any; action: 'add' | 'withdraw' } | null>(null);
+  const [vaultAmount, setVaultAmount] = useState('');
+  const [vaultLoading, setVaultLoading] = useState(false);
   const lastUpdateTimestampRef = useRef<number | null>(null);
 
   const fetchAnalytics = async (force = false) => {
@@ -166,6 +170,77 @@ export default function AnalyticsPage() {
       fetchAnalytics(true);
     } catch (err) {
       console.error('Erro ao confirmar pagamento:', err);
+    }
+  };
+
+  const handleVaultTransaction = async () => {
+    if (!vaultModal || !vaultAmount || parseFloat(vaultAmount) <= 0) {
+      return;
+    }
+
+    setVaultLoading(true);
+    try {
+      const category = vaultModal.category;
+      const amount_cents = Math.round(parseFloat(vaultAmount) * 100);
+      
+      // Se é adicionar: amount negativo (depósito)
+      // Se é retirar: amount positivo (resgate)
+      const finalAmount = vaultModal.action === 'add' ? -Math.abs(amount_cents) : Math.abs(amount_cents);
+
+      // Verificar saldo se for resgate - VALIDAÇÃO RIGOROSA
+      if (vaultModal.action === 'withdraw') {
+        const vaultTransactions = rawData.transactions.filter((t: any) => {
+          const cat = rawData.categories.find((c: any) => c.id === t.category_id);
+          return cat && cat.id === category.id;
+        });
+        
+        // Calcular saldo atual: depósitos (negativos) aumentam, resgates (positivos) diminuem
+        const currentBalance = vaultTransactions.reduce((balance: number, t: any) => {
+          if (t.amount_cents < 0) {
+            // Depósito: adicionar valor absoluto
+            return balance + Math.abs(t.amount_cents);
+          } else {
+            // Resgate: subtrair
+            return balance - t.amount_cents;
+          }
+        }, 0);
+        
+        // Verificar se o resgate não deixa o saldo negativo
+        const balanceAfterWithdrawal = currentBalance - amount_cents;
+        
+        if (amount_cents > currentBalance || balanceAfterWithdrawal < 0) {
+          const available = (currentBalance / 100).toFixed(2);
+          alert(`❌ Saldo insuficiente!\n\nDisponível: ${formatCurrency(parseFloat(available))}\nTentativa: ${formatCurrency(parseFloat(vaultAmount))}\n\nNão é possível deixar o cofre com saldo negativo.`);
+          setVaultLoading(false);
+          return;
+        }
+        
+        // Validação adicional: não permitir resgate que deixe saldo negativo
+        if (balanceAfterWithdrawal < 0) {
+          alert(`❌ Operação inválida!\n\nO resgate deixaria o cofre com saldo negativo.\nDisponível: ${formatCurrency(parseFloat((currentBalance / 100).toFixed(2)))}`);
+          setVaultLoading(false);
+          return;
+        }
+      }
+
+      const payload = {
+        amount_cents: finalAmount,
+        description: vaultModal.action === 'add' ? `Depósito em ${category.name}` : `Resgate de ${category.name}`,
+        category_id: category.id,
+        transaction_date: new Date().toISOString().split('T')[0],
+        is_installment: false
+      };
+
+      await api.post('/transactions/', payload);
+      setVaultModal(null);
+      setVaultAmount('');
+      await fetchAnalytics(true);
+    } catch (err: any) {
+      console.error('Erro ao processar transação do cofre:', err);
+      const errorMessage = err.response?.data?.detail || 'Erro ao processar transação.';
+      alert(errorMessage);
+    } finally {
+      setVaultLoading(false);
     }
   };
 
@@ -302,15 +377,24 @@ export default function AnalyticsPage() {
       const amount = t.amount_cents / 100;
       
       // Calculate Vault totals (all time)
-      // IMPORTANTE: amount pode ser positivo (receita) ou negativo (despesa)
-      // Para vault: amount negativo = adiciona ao vault, amount positivo = retira do vault (resgate)
+      // IMPORTANTE: amount_cents negativo = depósito (adiciona ao vault), amount_cents positivo = resgate (subtrai do vault)
       if (cat?.vault_type === 'investment') {
-        // Se amount é negativo (despesa), adiciona ao total. Se positivo (receita), subtrai (resgate)
-        investmentTotal += amount; // amount negativo adiciona, amount positivo subtrai
+        if (t.amount_cents < 0) {
+          // Depósito: amount_cents negativo, adicionar valor absoluto
+          investmentTotal += Math.abs(t.amount_cents / 100);
+        } else {
+          // Resgate: amount_cents positivo, subtrair
+          investmentTotal -= t.amount_cents / 100;
+        }
       }
       if (cat?.vault_type === 'emergency') {
-        // Se amount é negativo (despesa), adiciona ao total. Se positivo (receita), subtrai (resgate)
-        emergencyTotal += amount; // amount negativo adiciona, amount positivo subtrai
+        if (t.amount_cents < 0) {
+          // Depósito: amount_cents negativo, adicionar valor absoluto
+          emergencyTotal += Math.abs(t.amount_cents / 100);
+        } else {
+          // Resgate: amount_cents positivo, subtrair
+          emergencyTotal -= t.amount_cents / 100;
+        }
       }
 
       // Património Acumulado: Não subtrair investimentos (pois o dinheiro ainda é seu)
@@ -852,26 +936,77 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Fundo de Emergência</p>
-              <p className="text-lg font-black text-white text-center">{formatCurrency(processedData.emergencyTotal)}</p>
-              <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden">
-                <div 
-                  className="h-full bg-blue-500" 
-                  style={{ width: `${Math.min(100, (processedData.emergencyTotal / (processedData.evolution.slice(-1)[0]?.balance || 1)) * 100)}%` }} 
-                />
-              </div>
-            </div>
-            <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Investimentos Zen</p>
-              <p className="text-lg font-black text-emerald-400 text-center">{formatCurrency(processedData.investmentTotal)}</p>
-              <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden">
-                <div 
-                  className="h-full bg-emerald-500" 
-                  style={{ width: `${Math.min(100, (processedData.investmentTotal / (processedData.evolution.slice(-1)[0]?.balance || 1)) * 100)}%` }} 
-                />
-              </div>
-            </div>
+            {(() => {
+              const emergencyCategory = rawData.categories.find((c: any) => c.vault_type === 'emergency');
+              const investmentCategory = rawData.categories.find((c: any) => c.vault_type === 'investment');
+              
+              return (
+                <>
+                  <motion.div 
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-white/5 border border-white/5 p-4 rounded-3xl relative group"
+                  >
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Fundo de Emergência</p>
+                    <p className="text-lg font-black text-white text-center mb-3">{formatCurrency(processedData.emergencyTotal)}</p>
+                    <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden mb-3">
+                      <div 
+                        className="h-full bg-blue-500" 
+                        style={{ width: `${Math.min(100, (processedData.emergencyTotal / (processedData.evolution.slice(-1)[0]?.balance || 1)) * 100)}%` }} 
+                      />
+                    </div>
+                    {emergencyCategory && (
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => setVaultModal({ open: true, category: emergencyCategory, action: 'add' })}
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-xl transition-all group/btn cursor-pointer"
+                        >
+                          <Plus size={14} className="text-blue-400 group-hover/btn:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Adicionar</span>
+                        </button>
+                        <button
+                          onClick={() => setVaultModal({ open: true, category: emergencyCategory, action: 'withdraw' })}
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl transition-all group/btn cursor-pointer"
+                        >
+                          <Minus size={14} className="text-red-400 group-hover/btn:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">Retirar</span>
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                  <motion.div 
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-white/5 border border-white/5 p-4 rounded-3xl relative group"
+                  >
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Investimentos Zen</p>
+                    <p className="text-lg font-black text-emerald-400 text-center mb-3">{formatCurrency(processedData.investmentTotal)}</p>
+                    <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden mb-3">
+                      <div 
+                        className="h-full bg-emerald-500" 
+                        style={{ width: `${Math.min(100, (processedData.investmentTotal / (processedData.evolution.slice(-1)[0]?.balance || 1)) * 100)}%` }} 
+                      />
+                    </div>
+                    {investmentCategory && (
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => setVaultModal({ open: true, category: investmentCategory, action: 'add' })}
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl transition-all group/btn cursor-pointer"
+                        >
+                          <Plus size={14} className="text-emerald-400 group-hover/btn:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Adicionar</span>
+                        </button>
+                        <button
+                          onClick={() => setVaultModal({ open: true, category: investmentCategory, action: 'withdraw' })}
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl transition-all group/btn cursor-pointer"
+                        >
+                          <Minus size={14} className="text-red-400 group-hover/btn:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">Retirar</span>
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                </>
+              );
+            })()}
           </div>
 
           <div className="bg-gradient-to-r from-blue-600/10 to-indigo-600/10 border border-blue-500/20 p-4 rounded-2xl flex items-center justify-between">
@@ -965,46 +1100,273 @@ export default function AnalyticsPage() {
       {/* AI Deep Dive Cards */}
       <section className="space-y-6">
         <div className="flex items-center gap-3">
-          <Zap className="text-blue-500 fill-blue-500/20" size={24} />
+          <Brain className="text-blue-500 fill-blue-500/20" size={24} />
           <h2 className="text-xl font-black text-white tracking-tighter uppercase tracking-widest text-[11px] opacity-60">
             {t.dashboard.analytics.aiInsights}
           </h2>
         </div>
 
+        {/* Previsões Avançadas - Seção Especial */}
+        {rawData.insights?.predictions && rawData.insights.predictions.months_ahead && rawData.insights.predictions.months_ahead.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-br from-blue-500/10 via-purple-500/5 to-slate-900/40 backdrop-blur-xl border border-blue-500/20 rounded-[40px] p-8 relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[80px] rounded-full" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-3 mb-6">
+                <Sparkles className="text-blue-400" size={20} />
+                <h3 className="text-sm font-black uppercase tracking-widest text-blue-400">Projeção dos Próximos 3 Meses</h3>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                {rawData.insights.predictions.months_ahead.map((month: any, idx: number) => (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: idx * 0.1 }}
+                    className={`bg-slate-900/60 border rounded-2xl p-6 ${
+                      month.balance < 0 ? 'border-red-500/30' : 'border-slate-800'
+                    }`}
+                  >
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                      {(() => {
+                        const currentDate = new Date();
+                        const projectedDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + idx + 1, 1);
+                        return projectedDate.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
+                      })()}
+                    </p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400">Receitas</span>
+                        <span className="text-sm font-black text-emerald-400">+{formatCurrency(month.income)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400">Despesas</span>
+                        <span className="text-sm font-black text-red-400">-{formatCurrency(month.expenses)}</span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Saldo Projetado</span>
+                        <span className={`text-lg font-black ${month.balance < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {month.balance < 0 ? '-' : '+'}{formatCurrency(Math.abs(month.balance))}
+                        </span>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Categorias em Risco */}
+              {rawData.insights.predictions.categories_at_risk && rawData.insights.predictions.categories_at_risk.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-slate-800">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-4 flex items-center gap-2">
+                    <Info size={14} />
+                    Categorias em Risco (Próximo Mês)
+                  </h4>
+                  <div className="space-y-3">
+                    {rawData.insights.predictions.categories_at_risk.slice(0, 3).map((cat: any, idx: number) => (
+                      <div key={idx} className="bg-slate-900/60 border border-amber-500/20 rounded-xl p-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-black text-white">{cat.name}</span>
+                          <span className={`text-xs font-black ${cat.risk_percent >= 100 ? 'text-red-400' : 'text-amber-400'}`}>
+                            {cat.risk_percent.toFixed(0)}% do limite
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-slate-400">
+                          <span>Projeção: {formatCurrency(cat.projected)}</span>
+                          <span>Limite: {formatCurrency(cat.limit)}</span>
+                        </div>
+                        <div className="mt-2 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min(cat.risk_percent, 100)}%` }}
+                            transition={{ delay: idx * 0.1 + 0.3, duration: 0.5 }}
+                            className={`h-full ${cat.risk_percent >= 100 ? 'bg-red-500' : 'bg-amber-500'}`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Insights Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {processedData.insights.map((insight: any, index: number) => (
             <motion.div
               key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
               whileHover={{ y: -5 }}
               className={`bg-slate-900/40 backdrop-blur-xl border rounded-[32px] p-8 flex flex-col gap-6 relative overflow-hidden ${
-                insight.type === 'warning' ? 'border-red-500/20 shadow-red-500/5 shadow-2xl' : 'border-slate-800'
+                insight.type === 'warning' ? 'border-red-500/20 shadow-red-500/5 shadow-2xl' : 
+                insight.type === 'danger' ? 'border-red-500/30 shadow-red-500/10 shadow-2xl' :
+                insight.type === 'success' ? 'border-emerald-500/20 shadow-emerald-500/5 shadow-2xl' :
+                'border-slate-800'
               }`}
             >
-              {insight.type === 'warning' && (
-                <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/5 blur-[40px] rounded-full" />
+              {(insight.type === 'warning' || insight.type === 'danger') && (
+                <div className={`absolute top-0 right-0 w-24 h-24 ${insight.type === 'danger' ? 'bg-red-500/10' : 'bg-red-500/5'} blur-[40px] rounded-full`} />
+              )}
+              {insight.type === 'success' && (
+                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 blur-[40px] rounded-full" />
               )}
               
               <div className="flex items-center gap-4">
                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
                   insight.type === 'warning' ? 'bg-red-500/10 text-red-500' : 
+                  insight.type === 'danger' ? 'bg-red-500/20 text-red-400' :
                   insight.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'
                 }`}>
                   <Activity size={24} />
                 </div>
-                <h4 className="font-black text-white text-sm tracking-tight leading-tight">{insight.title}</h4>
+                <div className="flex-1">
+                  <h4 className="font-black text-white text-sm tracking-tight leading-tight">{insight.title}</h4>
+                  {insight.value !== undefined && insight.value !== null && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs font-black text-slate-400">{insight.value.toFixed(insight.value < 1 ? 1 : 0)}</span>
+                      {insight.trend && (
+                        <span className={`text-[10px] font-black uppercase ${
+                          insight.trend === 'up' ? 'text-emerald-400' : 
+                          insight.trend === 'down' ? 'text-red-400' : 
+                          'text-slate-400'
+                        }`}>
+                          {insight.trend === 'up' ? '↑' : insight.trend === 'down' ? '↓' : '→'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
-            <p className="text-slate-200 text-sm leading-relaxed italic font-semibold">
-              "{insight.message}"
-            </p>
+              <p className="text-slate-200 text-sm leading-relaxed italic font-semibold">
+                "{insight.message}"
+              </p>
 
-              <button className="mt-auto flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-colors cursor-pointer">
-                Aplicar Correção <ArrowUpRight size={12} />
+              <button className="mt-auto flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-colors cursor-pointer group">
+                Ver Detalhes <ArrowUpRight size={12} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
               </button>
             </motion.div>
           ))}
         </div>
       </section>
+
+      {/* Vault Transaction Modal */}
+      <AnimatePresence>
+        {vaultModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!vaultLoading) {
+                  setVaultModal(null);
+                  setVaultAmount('');
+                }
+              }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-[32px] p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    vaultModal.action === 'add' 
+                      ? vaultModal.category.vault_type === 'emergency' 
+                        ? 'bg-blue-500/20 text-blue-400' 
+                        : 'bg-emerald-500/20 text-emerald-400'
+                      : 'bg-red-500/20 text-red-400'
+                  }`}>
+                    {vaultModal.action === 'add' ? <Plus size={20} /> : <Minus size={20} />}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                      {vaultModal.action === 'add' ? 'Adicionar' : 'Retirar'}
+                    </h3>
+                    <p className="text-xs text-slate-400">{vaultModal.category.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                if (!vaultLoading) {
+                  setVaultModal(null);
+                  setVaultAmount('');
+                }
+              }}
+                  className="p-2 hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
+                  disabled={vaultLoading}
+                >
+                  <X size={18} className="text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">
+                    Valor (€)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={vaultAmount}
+                    onChange={(e) => setVaultAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white font-black text-lg focus:outline-none focus:border-blue-500/50 transition-colors"
+                    disabled={vaultLoading}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !vaultLoading && vaultAmount && parseFloat(vaultAmount) > 0) {
+                        handleVaultTransaction();
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                if (!vaultLoading) {
+                  setVaultModal(null);
+                  setVaultAmount('');
+                }
+              }}
+                    disabled={vaultLoading}
+                    className="flex-1 px-4 py-3 border border-slate-700 text-slate-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-white/5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleVaultTransaction}
+                    disabled={vaultLoading || !vaultAmount || parseFloat(vaultAmount) <= 0}
+                    className={`flex-1 px-4 py-3 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all cursor-pointer disabled:opacity-50 ${
+                      vaultModal.action === 'add'
+                        ? vaultModal.category.vault_type === 'emergency'
+                          ? 'bg-blue-500 hover:bg-blue-400 text-white'
+                          : 'bg-emerald-500 hover:bg-emerald-400 text-white'
+                        : 'bg-red-500 hover:bg-red-400 text-white'
+                    }`}
+                  >
+                    {vaultLoading ? 'A processar...' : vaultModal.action === 'add' ? 'Adicionar' : 'Retirar'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Confirmation Modal for Payment */}
       <AnimatePresence>

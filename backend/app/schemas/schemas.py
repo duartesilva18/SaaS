@@ -132,6 +132,7 @@ class ZenInsightsResponse(BaseModel):
     health_score: int
     metrics: Optional[dict] = None  # Métricas adicionais
     trends: Optional[dict] = None  # Tendências mensais
+    predictions: Optional[dict] = None  # Previsões da IA
 
 class RecurringTransactionBase(BaseModel):
     description: str

@@ -87,6 +87,7 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
         raise HTTPException(status_code=400, detail='Não são permitidas transações com data no futuro.')
     
     # Validar que a categoria existe e pertence ao workspace
+    category = None
     if transaction_in.category_id:
         category = db.query(models.Category).filter(
             models.Category.id == transaction_in.category_id,
@@ -94,6 +95,45 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
         ).first()
         if not category:
             raise HTTPException(status_code=400, detail='Categoria não encontrada ou não pertence ao teu workspace.')
+    
+    # Validar que amount_cents não é zero
+    if transaction_in.amount_cents == 0:
+        raise HTTPException(status_code=400, detail='O valor da transação não pode ser zero.')
+    
+    # Se é resgate de vault (amount positivo e categoria de vault), verificar saldo disponível
+    if category and category.vault_type != 'none' and transaction_in.amount_cents > 0:
+        # Calcular saldo atual do vault
+        vault_transactions = db.query(models.Transaction).filter(
+            models.Transaction.workspace_id == workspace.id,
+            models.Transaction.category_id == category.id,
+            func.abs(models.Transaction.amount_cents) != 1  # Excluir seed transactions
+        ).all()
+        
+        # Calcular saldo: depósitos (negativos) aumentam, resgates (positivos) diminuem
+        vault_balance = 0
+        for t in vault_transactions:
+            if t.amount_cents < 0:
+                vault_balance += abs(t.amount_cents)  # Depósito
+            else:
+                vault_balance -= t.amount_cents  # Resgate
+        
+        # Verificar se há saldo suficiente E se não deixa negativo
+        balance_after_withdrawal = vault_balance - transaction_in.amount_cents
+        
+        if transaction_in.amount_cents > vault_balance:
+            available_euros = vault_balance / 100
+            raise HTTPException(
+                status_code=400, 
+                detail=f'Saldo insuficiente no {category.name}. Disponível: {available_euros:.2f}€'
+            )
+        
+        # VALIDAÇÃO CRÍTICA: Não permitir que o saldo fique negativo
+        if balance_after_withdrawal < 0:
+            available_euros = vault_balance / 100
+            raise HTTPException(
+                status_code=400,
+                detail=f'Não é possível retirar {transaction_in.amount_cents / 100:.2f}€. O saldo ficaria negativo. Disponível: {available_euros:.2f}€'
+            )
     
     new_transaction = models.Transaction(
         **transaction_in.dict(),
