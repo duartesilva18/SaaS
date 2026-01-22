@@ -25,6 +25,103 @@ logger = logging.getLogger('FinanZenAPI')
 # Criar tabelas no banco de dados
 Base.metadata.create_all(bind=engine)
 
+# Migração: Atualizar tabela category_mapping_cache se necessário
+def migrate_category_mapping_cache():
+    """Migra a tabela category_mapping_cache para o novo schema"""
+    from sqlalchemy import text, inspect
+    from .core.dependencies import engine
+    
+    inspector = inspect(engine)
+    columns = {col['name']: col for col in inspector.get_columns('category_mapping_cache')} if 'category_mapping_cache' in inspector.get_table_names() else {}
+    
+    with engine.begin() as conn:  # Usar begin() para transações automáticas
+        # Verificar se a coluna category_name existe
+        if 'category_name' not in columns:
+            logger.info("Adicionando coluna category_name à tabela category_mapping_cache...")
+            try:
+                conn.execute(text("""
+                    ALTER TABLE category_mapping_cache 
+                    ADD COLUMN category_name VARCHAR(100) NOT NULL DEFAULT 'Outros'
+                """))
+                logger.info("Coluna category_name adicionada com sucesso")
+            except Exception as e:
+                logger.warning(f"Erro ao adicionar category_name (pode já existir): {e}")
+        
+        # Verificar se a coluna is_global existe
+        if 'is_global' not in columns:
+            logger.info("Adicionando coluna is_global à tabela category_mapping_cache...")
+            try:
+                conn.execute(text("""
+                    ALTER TABLE category_mapping_cache 
+                    ADD COLUMN is_global BOOLEAN NOT NULL DEFAULT FALSE
+                """))
+                logger.info("Coluna is_global adicionada com sucesso")
+            except Exception as e:
+                logger.warning(f"Erro ao adicionar is_global (pode já existir): {e}")
+        
+        # Tornar workspace_id nullable se ainda não for
+        if 'workspace_id' in columns and not columns['workspace_id']['nullable']:
+            logger.info("Tornando workspace_id nullable na tabela category_mapping_cache...")
+            try:
+                # Primeiro, remover o constraint único antigo se existir
+                try:
+                    conn.execute(text("ALTER TABLE category_mapping_cache DROP CONSTRAINT IF EXISTS unique_mapping"))
+                except:
+                    pass
+                
+                # Tornar nullable
+                conn.execute(text("""
+                    ALTER TABLE category_mapping_cache 
+                    ALTER COLUMN workspace_id DROP NOT NULL
+                """))
+                
+                # Adicionar novo constraint único (permite NULL)
+                # Nota: PostgreSQL trata NULL como valores distintos, então múltiplos NULLs são permitidos
+                try:
+                    conn.execute(text("""
+                        ALTER TABLE category_mapping_cache 
+                        ADD CONSTRAINT unique_workspace_mapping 
+                        UNIQUE (workspace_id, description_normalized, transaction_type)
+                    """))
+                except Exception as constraint_error:
+                    # Constraint pode já existir
+                    logger.info(f"Constraint unique_workspace_mapping pode já existir: {constraint_error}")
+                logger.info("workspace_id agora é nullable")
+            except Exception as e:
+                logger.warning(f"Erro ao tornar workspace_id nullable: {e}")
+        
+        # Tornar category_id nullable se ainda não for
+        if 'category_id' in columns and not columns['category_id']['nullable']:
+            logger.info("Tornando category_id nullable na tabela category_mapping_cache...")
+            try:
+                conn.execute(text("""
+                    ALTER TABLE category_mapping_cache 
+                    ALTER COLUMN category_id DROP NOT NULL
+                """))
+                logger.info("category_id agora é nullable")
+            except Exception as e:
+                logger.warning(f"Erro ao tornar category_id nullable: {e}")
+        
+        # Atualizar category_name para registos existentes que não têm nome
+        try:
+            conn.execute(text("""
+                UPDATE category_mapping_cache 
+                SET category_name = (
+                    SELECT c.name 
+                    FROM categories c 
+                    WHERE c.id = category_mapping_cache.category_id
+                )
+                WHERE category_name = 'Outros' AND category_id IS NOT NULL
+            """))
+        except Exception as e:
+            logger.warning(f"Erro ao atualizar category_name: {e}")
+
+# Executar migração
+try:
+    migrate_category_mapping_cache()
+except Exception as e:
+    logger.error(f"Erro na migração da tabela category_mapping_cache: {e}")
+
 app = FastAPI(title='FinanZen - Gestão Financeira Pessoal API')
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 import secrets
 import re
 import uuid
@@ -173,13 +173,90 @@ def create_default_categories(db: Session, workspace_id: uuid.UUID):
         {"name": "Salário", "type": "income", "vault_type": "none", "color_hex": "#10B981", "icon": "Landmark", "is_default": False},
     ]
     
+    categories_map = {}
     for cat_data in default_cats:
         new_cat = models.Category(
             workspace_id=workspace_id,
             **cat_data
         )
         db.add(new_cat)
+        categories_map[cat_data["name"]] = new_cat
     db.commit()
+    
+    # Retornar o mapa de categorias para usar no seed de transações
+    return categories_map
+
+def create_seed_transactions(db: Session, workspace_id: uuid.UUID, categories_map: dict):
+    """Cria transações de exemplo (1 cêntimo) para ajudar o Telegram a categorizar melhor"""
+    
+    # Transações de exemplo com descrições comuns que ajudam o Telegram a categorizar
+    seed_transactions = [
+        # Alimentação
+        {"category": "Alimentação", "description": "Supermercado Continente", "amount_cents": -1, "days_ago": 5},
+        {"category": "Alimentação", "description": "Pingo Doce compras", "amount_cents": -1, "days_ago": 3},
+        {"category": "Alimentação", "description": "Restaurante McDonald's", "amount_cents": -1, "days_ago": 2},
+        {"category": "Alimentação", "description": "Uber Eats entrega", "amount_cents": -1, "days_ago": 1},
+        {"category": "Alimentação", "description": "Café Starbucks", "amount_cents": -1, "days_ago": 0},
+        
+        # Transportes
+        {"category": "Transportes", "description": "Uber viagem", "amount_cents": -1, "days_ago": 4},
+        {"category": "Transportes", "description": "Bolt transporte", "amount_cents": -1, "days_ago": 2},
+        {"category": "Transportes", "description": "Combustível Galp", "amount_cents": -1, "days_ago": 6},
+        {"category": "Transportes", "description": "Bilhete metro Lisboa", "amount_cents": -1, "days_ago": 1},
+        {"category": "Transportes", "description": "Estacionamento parque", "amount_cents": -1, "days_ago": 3},
+        
+        # Habitação
+        {"category": "Habitação", "description": "Renda apartamento", "amount_cents": -1, "days_ago": 7},
+        {"category": "Habitação", "description": "Conta luz EDP", "amount_cents": -1, "days_ago": 10},
+        {"category": "Habitação", "description": "Água EPAL", "amount_cents": -1, "days_ago": 8},
+        {"category": "Habitação", "description": "Internet MEO", "amount_cents": -1, "days_ago": 5},
+        {"category": "Habitação", "description": "Condomínio prédio", "amount_cents": -1, "days_ago": 4},
+        
+        # Saúde
+        {"category": "Saúde", "description": "Farmácia medicamentos", "amount_cents": -1, "days_ago": 3},
+        {"category": "Saúde", "description": "Consulta médico", "amount_cents": -1, "days_ago": 5},
+        {"category": "Saúde", "description": "Ginásio fitness", "amount_cents": -1, "days_ago": 1},
+        {"category": "Saúde", "description": "Seguro saúde", "amount_cents": -1, "days_ago": 15},
+        
+        # Entretenimento
+        {"category": "Entretenimento", "description": "Netflix subscrição", "amount_cents": -1, "days_ago": 2},
+        {"category": "Entretenimento", "description": "Spotify Premium", "amount_cents": -1, "days_ago": 1},
+        {"category": "Entretenimento", "description": "Cinema NOS", "amount_cents": -1, "days_ago": 4},
+        {"category": "Entretenimento", "description": "Jantar restaurante", "amount_cents": -1, "days_ago": 3},
+        {"category": "Entretenimento", "description": "PlayStation Store", "amount_cents": -1, "days_ago": 6},
+        
+        # Investimento
+        {"category": "Investimento", "description": "Ações bolsa", "amount_cents": -1, "days_ago": 7},
+        {"category": "Investimento", "description": "ETF investimento", "amount_cents": -1, "days_ago": 10},
+        {"category": "Investimento", "description": "Criptomoedas Bitcoin", "amount_cents": -1, "days_ago": 5},
+        
+        # Fundo de Emergência
+        {"category": "Fundo de Emergência", "description": "Poupança emergência", "amount_cents": -1, "days_ago": 14},
+        {"category": "Fundo de Emergência", "description": "Reserva fundo", "amount_cents": -1, "days_ago": 20},
+        
+        # Salário (receita)
+        {"category": "Salário", "description": "Salário mensal", "amount_cents": 1, "days_ago": 0},
+        {"category": "Salário", "description": "Ordenado empresa", "amount_cents": 1, "days_ago": 30},
+    ]
+    
+    today = date.today()
+    
+    for trans_data in seed_transactions:
+        category = categories_map.get(trans_data["category"])
+        if category:
+            transaction_date = today - timedelta(days=trans_data["days_ago"])
+            
+            new_transaction = models.Transaction(
+                workspace_id=workspace_id,
+                category_id=category.id,
+                amount_cents=trans_data["amount_cents"],
+                description=trans_data["description"],
+                transaction_date=transaction_date
+            )
+            db.add(new_transaction)
+    
+    db.commit()
+    logger.info(f'Transações de exemplo criadas para workspace {workspace_id}')
 
 @router.get('/verify-email')
 async def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
@@ -210,7 +287,10 @@ async def verify_email(request: Request, token: str, db: Session = Depends(get_d
         db.refresh(new_workspace)
         
         # Criar categorias padrão (Investimento e Fundo de Emergência)
-        create_default_categories(db, new_workspace.id)
+        categories_map = create_default_categories(db, new_workspace.id)
+        
+        # Criar transações de exemplo para ajudar o Telegram a categorizar
+        create_seed_transactions(db, new_workspace.id, categories_map)
         
         logger.info(f'Utilizador criado e verificado: {user.email}')
         await log_action(db, action='register_success', user_id=user.id, details=f'Novo utilizador registado: {user.email}', request=request)
@@ -491,7 +571,10 @@ async def social_login(request: Request, data: schemas.SocialLoginRequest, db: S
         db.refresh(new_workspace)
         
         # Criar categorias padrão (Investimento e Fundo de Emergência)
-        create_default_categories(db, new_workspace.id)
+        categories_map = create_default_categories(db, new_workspace.id)
+        
+        # Criar transações de exemplo para ajudar o Telegram a categorizar
+        create_seed_transactions(db, new_workspace.id, categories_map)
     else:
         if data.provider == 'google' and not user.google_id:
             user.google_id = social_id

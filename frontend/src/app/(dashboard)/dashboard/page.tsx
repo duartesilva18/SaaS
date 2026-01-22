@@ -151,7 +151,8 @@ export default function DashboardPage() {
             type: 'error'
           });
         }
-        const hasActiveSub = ['active', 'trialing'].includes(user.subscription_status);
+        // Inclui 'cancel_at_period_end' para manter acesso até ao fim do período
+        const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
         setIsPro(hasActiveSub);
         
         // Só mostrar o Paywall se não for Pro E não estivermos a voltar de um pagamento (session_id)
@@ -159,7 +160,8 @@ export default function DashboardPage() {
           setShowPaywall(true);
         }
 
-        let transactions = [...transRes.data];
+        // Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
+        let transactions = [...transRes.data].filter(t => Math.abs(t.amount_cents) !== 1);
         let categories = catRes.data;
 
         if (!hasActiveSub && transactions.length === 0) {

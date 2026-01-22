@@ -8,6 +8,10 @@ import {
   Clock, AlertCircle, CheckCircle2, Loader2,
   PieChart, BarChart3, Globe, ShieldCheck
 } from 'lucide-react';
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer, Area, AreaChart
+} from 'recharts';
 import api from '@/lib/api';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useUser } from '@/lib/UserContext';
@@ -19,6 +23,14 @@ export default function AdminFinancePage() {
   const [loading, setLoading] = useState(true);
   const [financeStats, setFinanceStats] = useState<any>(null);
   const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' as 'success' | 'error' });
+
+  // Função para formatar sempre em EUR (tesouraria global)
+  const formatEUR = (amount: number) => {
+    return new Intl.NumberFormat('pt-PT', {
+      style: 'currency',
+      currency: 'EUR',
+    }).format(amount);
+  };
 
   const fetchData = async () => {
     try {
@@ -74,7 +86,7 @@ export default function AdminFinancePage() {
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6">Receita Mensal Recorrente (MRR)</p>
           <div className="flex items-baseline gap-2">
             <h3 className="text-5xl font-black text-white tracking-tighter">
-              {formatCurrency((financeStats?.total_mrr_cents || 0) / 100)}
+              {formatEUR((financeStats?.total_mrr_cents || 0) / 100)}
             </h3>
           </div>
           <div className="mt-8 flex items-center gap-3">
@@ -91,7 +103,7 @@ export default function AdminFinancePage() {
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-6">Receita Total Acumulada</p>
           <div className="flex items-baseline gap-2">
             <h3 className="text-5xl font-black text-white tracking-tighter">
-              {formatCurrency((financeStats?.total_revenue_cents || 0) / 100)}
+              {formatEUR((financeStats?.total_revenue_cents || 0) / 100)}
             </h3>
           </div>
           <div className="mt-8 flex items-center gap-3">
@@ -115,6 +127,93 @@ export default function AdminFinancePage() {
           </div>
         </div>
       </div>
+
+      {/* Monthly Revenue Chart */}
+      <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10">
+        <div className="flex items-center gap-4 mb-10">
+          <div className="w-12 h-12 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center">
+            <TrendingUp size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-white uppercase tracking-widest text-[11px] opacity-60">Faturamento Mensal</h2>
+            <p className="text-xs text-slate-500 italic">Últimos 12 meses de receita liquidada</p>
+          </div>
+        </div>
+
+        {financeStats?.monthly_revenue && financeStats.monthly_revenue.length > 0 ? (
+          <div className="h-[400px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={financeStats.monthly_revenue.map(item => {
+                const revenue = item.revenue_cents / 100;
+                // Calcular média
+                const allRevenues = financeStats.monthly_revenue.map(i => i.revenue_cents / 100);
+                const average = allRevenues.reduce((a, b) => a + b, 0) / allRevenues.length;
+                return {
+                  ...item,
+                  revenue,
+                  average
+                };
+              })}>
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis 
+                  dataKey="month" 
+                  stroke="#64748b"
+                  style={{ fontSize: '10px', fontWeight: 'bold' }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis 
+                  stroke="#64748b"
+                  style={{ fontSize: '10px', fontWeight: 'bold' }}
+                  tickFormatter={(value) => formatEUR(value)}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    border: '1px solid #1e293b',
+                    borderRadius: '12px',
+                    color: '#fff'
+                  }}
+                  formatter={(value: number, name: string) => {
+                    if (name === 'average') return [formatEUR(value), 'Média'];
+                    return [formatEUR(value), 'Receita'];
+                  }}
+                />
+                {/* Área com gradiente (shadow) */}
+                <Area 
+                  type="monotone" 
+                  dataKey="revenue" 
+                  stroke="#3b82f6" 
+                  fillOpacity={1} 
+                  fill="url(#colorRevenue)"
+                  strokeWidth={3}
+                />
+                {/* Linha média */}
+                <Line 
+                  type="monotone" 
+                  dataKey="average" 
+                  stroke="#10b981" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <BarChart3 size={48} className="text-slate-700 mb-4 opacity-20" />
+            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Sem dados de faturamento</p>
+          </div>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Pending Invoices */}

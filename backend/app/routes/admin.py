@@ -33,6 +33,9 @@ async def check_admin(current_user: models.User = Depends(get_current_user)):
 @router.get('/finance/stats')
 async def get_admin_finance_stats(db: Session = Depends(get_db), admin: models.User = Depends(check_admin)):
     try:
+        from datetime import datetime, timedelta
+        from collections import defaultdict
+        
         subscriptions = stripe.Subscription.list(limit=100)
         invoices = stripe.Invoice.list(limit=100)
         
@@ -41,11 +44,45 @@ async def get_admin_finance_stats(db: Session = Depends(get_db), admin: models.U
         
         pending_invoices = [inv for inv in invoices.data if inv.status == 'open' and inv.attempt_count > 0]
         
+        # Contar apenas utilizadores únicos com subscrições ativas (não subscrições múltiplas)
+        unique_customers = set()
+        for sub in subscriptions.data:
+            if sub.status in ['active', 'trialing']:
+                unique_customers.add(sub.customer)
+        
+        # Calcular faturamento mensal dos últimos 12 meses
+        monthly_revenue = defaultdict(int)
+        now = datetime.now()
+        
+        for inv in invoices.data:
+            if inv.status == 'paid' and inv.created:
+                # Converter timestamp Unix para datetime (Stripe retorna Unix timestamp)
+                if isinstance(inv.created, (int, float)):
+                    inv_date = datetime.fromtimestamp(inv.created)
+                else:
+                    # Se já for datetime object
+                    inv_date = inv.created
+                # Agrupar por mês/ano
+                month_key = inv_date.strftime('%Y-%m')
+                monthly_revenue[month_key] += inv.amount_paid
+        
+        # Criar lista dos últimos 12 meses com valores
+        monthly_data = []
+        for i in range(11, -1, -1):  # Últimos 12 meses
+            month_date = now - timedelta(days=30 * i)
+            month_key = month_date.strftime('%Y-%m')
+            month_label = month_date.strftime('%b %Y')
+            monthly_data.append({
+                'month': month_label,
+                'revenue_cents': monthly_revenue.get(month_key, 0)
+            })
+        
         return {
             'total_mrr_cents': total_mrr,
             'total_revenue_cents': total_revenue,
-            'active_subscriptions': len(subscriptions.data),
-            'pending_invoices_count': len(pending_invoices)
+            'active_subscriptions': len(unique_customers),  # Contar utilizadores únicos
+            'pending_invoices_count': len(pending_invoices),
+            'monthly_revenue': monthly_data
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Stripe error: {str(e)}')

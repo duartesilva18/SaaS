@@ -7,16 +7,19 @@ import api from '@/lib/api';
 import { 
   CreditCard, Calendar, Clock, CheckCircle2, 
   AlertCircle, ExternalLink, Download, ArrowRight,
-  ShieldCheck, Wallet, Sparkles, FileText, ChevronRight
+  ShieldCheck, Wallet, Sparkles, FileText, ChevronRight,
+  X, Trash2
 } from 'lucide-react';
+import Toast from '@/components/Toast';
 
 interface Invoice {
   id: string;
   amount_paid: number;
+  amount_due?: number;
   currency: string;
   status: string;
   created: number;
-  invoice_pdf: string;
+  invoice_pdf: string | null;
   number: string;
 }
 
@@ -34,6 +37,9 @@ export default function BillingPage() {
   const [subData, setSubData] = useState<SubscriptionData | null>(null);
   const [isSimulated, setIsSimulated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
+  const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' as 'success' | 'error' });
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,6 +77,33 @@ export default function BillingPage() {
       window.location.href = res.data.url;
     } catch (err) {
       alert("Não foi possível abrir o portal Stripe.");
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    setIsCanceling(true);
+    try {
+      const res = await api.post('/stripe/cancel-subscription');
+      setShowCancelModal(false);
+      setToast({
+        isVisible: true,
+        message: 'Subscrição será cancelada no final do período atual.',
+        type: 'success'
+      });
+      // Recarregar dados do utilizador
+      const userRes = await api.get('/auth/me');
+      setSubData({
+        status: userRes.data.subscription_status,
+        plan_name: ['active', 'trialing'].includes(userRes.data.subscription_status) ? 'Plano Pro' : 'Plano Base'
+      });
+    } catch (err: any) {
+      setToast({
+        isVisible: true,
+        message: err.response?.data?.detail || 'Erro ao cancelar subscrição.',
+        type: 'error'
+      });
+    } finally {
+      setIsCanceling(false);
     }
   };
 
@@ -156,10 +189,22 @@ export default function BillingPage() {
           <div className="relative z-10">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">{b.status}</p>
             <div className={`inline-flex items-center gap-2 text-xl font-black uppercase tracking-tighter px-4 py-2 rounded-2xl ${
-              subData?.status === 'active' ? 'text-emerald-400 bg-emerald-500/10' : 'text-amber-400 bg-amber-500/10'
+              subData?.status === 'active' || subData?.status === 'trialing' 
+                ? 'text-emerald-400 bg-emerald-500/10' 
+                : subData?.status === 'cancel_at_period_end'
+                ? 'text-red-400 bg-red-500/10'
+                : 'text-amber-400 bg-amber-500/10'
             }`}>
-              {subData?.status === 'active' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-              {b.states[subData?.status as keyof typeof b.states] || subData?.status}
+              {subData?.status === 'active' || subData?.status === 'trialing' ? (
+                <CheckCircle2 size={18} />
+              ) : subData?.status === 'cancel_at_period_end' ? (
+                <AlertCircle size={18} />
+              ) : (
+                <AlertCircle size={18} />
+              )}
+              {subData?.status === 'cancel_at_period_end' 
+                ? 'Pedido de Cancelamento' 
+                : b.states[subData?.status as keyof typeof b.states] || subData?.status}
             </div>
           </div>
         </motion.div>
@@ -226,7 +271,11 @@ export default function BillingPage() {
                             </div>
                           </td>
                           <td className="py-6 px-8 font-black text-white text-base tracking-tighter">
-                            {formatCurrency(inv.amount_paid / 100)}
+                            {formatCurrency(
+                              (inv.status === 'open' || inv.status === 'unpaid') && inv.amount_due
+                                ? inv.amount_due / 100
+                                : inv.amount_paid / 100
+                            )}
                           </td>
                           <td className="py-6 px-8">
                             <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${getStatusColor(inv.status)}`}>
@@ -234,14 +283,20 @@ export default function BillingPage() {
                             </span>
                           </td>
                           <td className="py-6 px-8 text-right">
-                            <a 
-                              href={inv.invoice_pdf} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-blue-600 text-slate-400 hover:text-white rounded-xl transition-all font-black text-[9px] uppercase tracking-widest group/link border border-white/5"
-                            >
-                              PDF <Download size={12} className="group-hover/link:translate-y-0.5 transition-transform" />
-                            </a>
+                            {inv.invoice_pdf ? (
+                              <a 
+                                href={inv.invoice_pdf} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-blue-600 text-slate-400 hover:text-white rounded-xl transition-all font-black text-[9px] uppercase tracking-widest group/link border border-white/5"
+                              >
+                                PDF <Download size={12} className="group-hover/link:translate-y-0.5 transition-transform" />
+                              </a>
+                            ) : (
+                              <span className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 text-slate-600 rounded-xl font-black text-[9px] uppercase tracking-widest border border-white/5 cursor-not-allowed">
+                                PDF <Download size={12} />
+                              </span>
+                            )}
                           </td>
                         </motion.tr>
                       ))}
@@ -254,6 +309,19 @@ export default function BillingPage() {
         </div>
       </section>
 
+      {/* Cancel Subscription Button - Outside Table */}
+      {['active', 'trialing'].includes(subData?.status || '') && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setShowCancelModal(true)}
+            className="text-sm text-slate-400 hover:text-red-400 font-medium transition-colors flex items-center gap-2 cursor-pointer"
+          >
+            <Trash2 size={16} />
+            Cancelar Subscrição
+          </button>
+        </div>
+      )}
+
       {/* Info Banner */}
       <section className="bg-blue-600/5 border border-blue-500/10 rounded-[40px] p-8 flex flex-col md:flex-row items-center gap-6">
         <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center text-blue-500 shrink-0">
@@ -263,6 +331,96 @@ export default function BillingPage() {
           As tuas faturas são processadas pelo **Stripe**. Podes descarregar o recibo oficial em PDF para cada transação acima. Para alterar o método de pagamento, usa o botão **"Gerir no Stripe"**.
         </p>
       </section>
+
+      {/* Cancel Subscription Modal */}
+      <AnimatePresence>
+        {showCancelModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isCanceling && setShowCancelModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-[48px] overflow-hidden shadow-2xl"
+            >
+              <div className="absolute top-0 right-0 w-64 h-64 bg-red-600/10 blur-[80px] rounded-full -z-10" />
+              
+              <div className="p-8 lg:p-12">
+                <div className="flex justify-between items-center mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-red-500/10 text-red-500 rounded-2xl flex items-center justify-center">
+                      <AlertCircle size={24} />
+                    </div>
+                    <h2 className="text-2xl font-black text-white uppercase tracking-tighter">
+                      Cancelar Subscrição
+                    </h2>
+                  </div>
+                  {!isCanceling && (
+                    <button
+                      onClick={() => setShowCancelModal(false)}
+                      className="p-2 hover:bg-slate-800 rounded-xl transition-colors text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X size={20} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-6 mb-8">
+                  <p className="text-slate-300 font-medium leading-relaxed">
+                    Tens a certeza que queres cancelar a tua subscrição?
+                  </p>
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
+                    <p className="text-sm text-amber-400 font-medium">
+                      A tua subscrição será cancelada no final do período atual. Continuarás a ter acesso a todas as funcionalidades Pro até essa data.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setShowCancelModal(false)}
+                    disabled={isCanceling}
+                    className="flex-1 px-6 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Manter Subscrição
+                  </button>
+                  <button
+                    onClick={handleCancelSubscription}
+                    disabled={isCanceling}
+                    className="flex-1 px-6 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isCanceling ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        A processar...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={16} />
+                        Confirmar Cancelamento
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <Toast 
+        message={toast.message} 
+        type={toast.type} 
+        isVisible={toast.isVisible} 
+        onClose={() => setToast({ ...toast, isVisible: false })} 
+      />
     </div>
   );
 }

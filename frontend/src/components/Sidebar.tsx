@@ -181,6 +181,13 @@ export default function Sidebar({
   useEffect(() => {
     const fetchNotifications = async () => {
       if (!user) return;
+      
+      // Verificar se há token antes de fazer chamadas
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (!token) {
+        return; // Sem token, não fazer chamadas
+      }
+      
       try {
         const [insightsRes, recurringRes, invoicesRes] = await Promise.all([
           api.get('/insights/'),
@@ -253,7 +260,12 @@ export default function Sidebar({
 
         setNotifications(newNotifications);
         setHasCritical(criticalFound);
-      } catch (err) {
+      } catch (err: any) {
+        // Se for erro 401 (não autorizado), não fazer nada (token pode ter expirado)
+        if (err?.response?.status === 401) {
+          // Token expirado ou inválido - o interceptor do api.ts vai lidar com isso
+          return;
+        }
         console.error("Erro ao carregar notificações:", err);
       }
     };

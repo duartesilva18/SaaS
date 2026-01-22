@@ -39,7 +39,8 @@ export default function ZenInsights() {
           api.get('/insights/')
         ]);
         const user = profileRes.data;
-        const hasActiveSub = ['active', 'trialing'].includes(user.subscription_status);
+        // Inclui 'cancel_at_period_end' para manter acesso até ao fim do período
+        const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
         if (!hasActiveSub) {
           setData(DEMO_INSIGHTS);
         } else {

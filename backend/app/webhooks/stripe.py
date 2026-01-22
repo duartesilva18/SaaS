@@ -42,6 +42,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     elif event_type == 'customer.subscription.deleted':
         subscription = event['data']['object']
         handle_subscription_deleted(subscription, db)
+    elif event_type == 'invoice.payment_failed':
+        invoice = event['data']['object']
+        handle_invoice_payment_failed(invoice, db)
+    elif event_type == 'invoice.paid':
+        invoice = event['data']['object']
+        handle_invoice_paid(invoice, db)
 
     return {'status': 'success'}
 
@@ -122,14 +128,19 @@ def handle_subscription_updated(subscription: dict, db: Session):
     """Processa customer.subscription.updated"""
     subscription_id = subscription['id']
     status = subscription.get('status')
+    cancel_at_period_end = subscription.get('cancel_at_period_end', False)
     
-    logger.info(f'Subscrição atualizada: {subscription_id}, Status: {status}')
+    logger.info(f'Subscrição atualizada: {subscription_id}, Status: {status}, Cancel at period end: {cancel_at_period_end}')
     
     user = db.query(models.User).filter(models.User.stripe_subscription_id == subscription_id).first()
     if user:
-        user.subscription_status = status
+        # Se cancel_at_period_end é True, usar status especial
+        if cancel_at_period_end and status == 'active':
+            user.subscription_status = 'cancel_at_period_end'
+        else:
+            user.subscription_status = status
         db.commit()
-        logger.info(f'Status da subscrição atualizado para {user.email}: {status}')
+        logger.info(f'Status da subscrição atualizado para {user.email}: {user.subscription_status}')
     else:
         logger.warning(f'Utilizador não encontrado para subscrição: {subscription_id}')
 
@@ -147,4 +158,63 @@ def handle_subscription_deleted(subscription: dict, db: Session):
         logger.info(f'Subscrição cancelada para {user.email}')
     else:
         logger.warning(f'Utilizador não encontrado para subscrição eliminada: {subscription_id}')
+
+def handle_invoice_payment_failed(invoice: dict, db: Session):
+    """Processa invoice.payment_failed - quando um pagamento falha"""
+    customer_id = invoice.get('customer')
+    subscription_id = invoice.get('subscription')
+    invoice_period_end = invoice.get('period_end')  # Timestamp do fim do período da fatura
+    
+    logger.warning(f'Pagamento falhou - Invoice: {invoice.get("id")}, Customer: {customer_id}, Subscription: {subscription_id}')
+    
+    # Se a fatura está associada a uma subscrição, verificar se é para o período atual
+    if subscription_id:
+        user = db.query(models.User).filter(models.User.stripe_subscription_id == subscription_id).first()
+        if user:
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                current_period_end = subscription.current_period_end  # Timestamp do fim do período atual
+                current_time = datetime.now().timestamp()
+                
+                # Só atualizar o status se:
+                # 1. A fatura é para o período atual (period_end <= current_period_end) OU
+                # 2. O período atual já terminou (current_time >= current_period_end) E a subscrição está realmente 'past_due' ou 'unpaid'
+                is_current_period_invoice = invoice_period_end and invoice_period_end <= current_period_end
+                period_has_ended = current_time >= current_period_end
+                
+                if subscription.status in ['past_due', 'unpaid']:
+                    # Só atualizar se for fatura do período atual ou se o período já terminou
+                    if is_current_period_invoice or period_has_ended:
+                        user.subscription_status = subscription.status
+                        db.commit()
+                        logger.warning(f'Status da subscrição atualizado para {subscription.status} devido a pagamento falhado: {user.email}')
+                    else:
+                        logger.info(f'Pagamento falhou para fatura futura (próximo ciclo). Mantendo acesso até {datetime.fromtimestamp(current_period_end)}: {user.email}')
+                elif subscription.status == 'active':
+                    # Se ainda está ativo, não fazer nada (pode ser tentativa de pagamento futuro)
+                    logger.info(f'Subscrição ainda ativa após falha de pagamento. Pode ser fatura futura: {user.email}')
+            except Exception as e:
+                logger.error(f'Erro ao buscar subscrição após pagamento falhado: {str(e)}')
+
+def handle_invoice_paid(invoice: dict, db: Session):
+    """Processa invoice.paid - quando uma fatura é paga com sucesso"""
+    customer_id = invoice.get('customer')
+    subscription_id = invoice.get('subscription')
+    
+    logger.info(f'Fatura paga com sucesso - Invoice: {invoice.get("id")}, Customer: {customer_id}, Subscription: {subscription_id}')
+    
+    # Se a fatura está associada a uma subscrição, garantir que o status está correto
+    if subscription_id:
+        user = db.query(models.User).filter(models.User.stripe_subscription_id == subscription_id).first()
+        if user:
+            # Se o status estava 'past_due' ou 'unpaid', atualizar para 'active'
+            if user.subscription_status in ['past_due', 'unpaid']:
+                try:
+                    subscription = stripe.Subscription.retrieve(subscription_id)
+                    if subscription.status == 'active':
+                        user.subscription_status = 'active'
+                        db.commit()
+                        logger.info(f'Subscrição reativada após pagamento: {user.email}')
+                except Exception as e:
+                    logger.error(f'Erro ao verificar subscrição após pagamento: {str(e)}')
 

@@ -63,10 +63,16 @@ export default function TransactionsPage() {
         api.get('/transactions/'),
         api.get('/categories/')
       ]);
-      setTransactions(transRes.data);
+      // Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
+      setTransactions(transRes.data.filter((t: any) => Math.abs(t.amount_cents) !== 1));
       setCategories(catRes.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao carregar dados:', err);
+      
+      // Se for erro de rede, mostrar mensagem mais útil
+      if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+        console.error('Erro de rede: O servidor backend pode não estar a correr. Verifica se o servidor está ativo em', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+      }
     } finally {
       setLoading(false);
     }
@@ -379,7 +385,7 @@ export default function TransactionsPage() {
                       </td>
                       <td className="px-8 py-6 text-right">
                         <span className={`text-sm font-black ${cat?.type === 'income' ? 'text-emerald-400' : 'text-white'}`}>
-                          {cat?.type === 'income' ? '+' : '-'}{formatCurrency(t.amount_cents / 100)}
+                          {cat?.type === 'income' ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
                         </span>
                       </td>
                     </motion.tr>
@@ -654,7 +660,7 @@ export default function TransactionsPage() {
                       ? 'text-emerald-400' 
                       : 'text-white'
                     }`}>
-                      {formatCurrency(selectedTransaction.amount_cents / 100)}
+                      {formatCurrency(Math.abs(selectedTransaction.amount_cents) / 100)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">

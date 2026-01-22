@@ -145,6 +145,77 @@ async def verify_checkout_session(session_id: str, current_user: models.User = D
         logger.error(f'Erro inesperado ao verificar sessão: {str(e)}')
         raise HTTPException(status_code=500, detail='Erro ao verificar sessão')
 
+@router.post('/cancel-subscription')
+async def cancel_subscription(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Cancela a subscrição do utilizador (no final do período atual)"""
+    try:
+        logger.info(f'Tentativa de cancelar subscrição para {current_user.email}, subscription_id: {current_user.stripe_subscription_id}')
+        
+        if not current_user.stripe_subscription_id:
+            logger.warning(f'Utilizador {current_user.email} tentou cancelar mas não tem subscription_id')
+            raise HTTPException(status_code=400, detail='Não tens uma subscrição ativa para cancelar.')
+        
+        # Verificar se a subscrição já está cancelada
+        if current_user.subscription_status == 'cancel_at_period_end':
+            logger.info(f'Subscrição já está marcada para cancelamento: {current_user.email}')
+            return {
+                'success': True,
+                'message': 'Subscrição já está marcada para cancelamento.',
+                'subscription_status': 'cancel_at_period_end'
+            }
+        
+        # Verificar se é subscrição de simulação/teste
+        if current_user.stripe_customer_id and (current_user.stripe_customer_id.startswith('sim_') or current_user.stripe_customer_id.startswith('test_')):
+            logger.info(f'Subscrição de simulação - marcando como cancel_at_period_end sem chamar Stripe: {current_user.email}')
+            current_user.subscription_status = 'cancel_at_period_end'
+            db.commit()
+            return {
+                'success': True,
+                'message': 'Subscrição será cancelada no final do período atual.',
+                'subscription_status': 'cancel_at_period_end'
+            }
+        
+        # Cancelar subscrição no Stripe (cancel_at_period_end = True)
+        try:
+            subscription = stripe.Subscription.modify(
+                current_user.stripe_subscription_id,
+                cancel_at_period_end=True
+            )
+            logger.info(f'Subscrição modificada no Stripe: {subscription.id}, cancel_at_period_end: {subscription.cancel_at_period_end}')
+        except stripe.error.InvalidRequestError as e:
+            logger.error(f'Erro Stripe InvalidRequestError: {str(e)}, code: {getattr(e, "code", None)}')
+            # Se a subscrição não existe no Stripe, apenas atualizar na BD
+            if getattr(e, 'code', None) == 'resource_missing':
+                logger.warning(f'Subscrição não encontrada no Stripe, atualizando apenas na BD: {current_user.email}')
+                current_user.subscription_status = 'cancel_at_period_end'
+                db.commit()
+                return {
+                    'success': True,
+                    'message': 'Subscrição será cancelada no final do período atual.',
+                    'subscription_status': 'cancel_at_period_end'
+                }
+            raise
+        
+        # Atualizar status na base de dados
+        current_user.subscription_status = 'cancel_at_period_end'
+        db.commit()
+        
+        logger.info(f'Subscrição {current_user.stripe_subscription_id} marcada para cancelamento no final do período para {current_user.email}')
+        
+        return {
+            'success': True,
+            'message': 'Subscrição será cancelada no final do período atual.',
+            'subscription_status': 'cancel_at_period_end'
+        }
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:
+        logger.error(f'Erro Stripe ao cancelar subscrição: {str(e)}, tipo: {type(e).__name__}')
+        raise HTTPException(status_code=400, detail=f'Erro ao cancelar subscrição: {str(e)}')
+    except Exception as e:
+        logger.error(f'Erro inesperado ao cancelar subscrição: {str(e)}', exc_info=True)
+        raise HTTPException(status_code=500, detail=f'Erro ao cancelar subscrição: {str(e)}')
+
 @router.get('/invoices')
 async def get_stripe_invoices(current_user: models.User = Depends(get_current_user)):
     try:

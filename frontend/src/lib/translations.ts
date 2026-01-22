@@ -774,6 +774,31 @@ export const translations = {
                 subtitle: "Master the tools of FinanZen and achieve financial peace.",
                 sections: [
                     {
+                        title: "Telegram Bot",
+                        description: "Regista transações rapidamente pelo Telegram. Múltiplas formas de escrever, categorização inteligente e confirmação instantânea.",
+                        features: [
+                            "Formato Simples: 'descrição valor' (ex: café 1.5€)",
+                            "Com Categoria: 'descrição - categoria valor' (ex: iogurtes - Alimentação 5€)",
+                            "Categorização Automática: IA aprende os teus hábitos",
+                            "Confirmação Rápida: Botões inline para confirmar ou cancelar",
+                            "Sem Instalações: Usa o Telegram que já tens"
+                        ],
+                        howTo: [
+                            {
+                                user: "Bolachas 10€",
+                                bot: "Nova transação\n📝 Bolachas\n💰 10.00€\n🏷️ Alimentação\n\nConfirma?"
+                            },
+                            {
+                                user: "Uber - Transportes 15€",
+                                bot: "Nova transação\n📝 Uber\n💰 15.00€\n🏷️ Transportes\n\nConfirma?"
+                            },
+                            {
+                                user: "Salário 1500€",
+                                bot: "Nova transação\n📝 Salário\n💰 1500.00€\n🏷️ Salário\n\nConfirma?"
+                            }
+                        ]
+                    },
+                    {
                         title: "WhatsApp Fin",
                         description: "The soul of FinanZen. Register any expense or income in seconds without opening the app.",
                         features: [

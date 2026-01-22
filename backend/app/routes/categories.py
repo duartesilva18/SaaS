@@ -32,7 +32,8 @@ async def get_category_stats(db: Session = Depends(get_db), current_user: models
     transactions = db.query(models.Transaction).join(models.Category).filter(
         models.Transaction.workspace_id == workspace.id,
         models.Transaction.transaction_date >= start_of_month,
-        models.Category.type == 'expense'
+        models.Category.type == 'expense',
+        func.abs(models.Transaction.amount_cents) != 1  # Filtrar transações de seed (1 cêntimo)
     ).all()
     
     total_monthly_cents = sum(t.amount_cents for t in transactions)

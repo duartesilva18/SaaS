@@ -4,7 +4,6 @@ import Sidebar from '@/components/Sidebar';
 import OnboardingModal from '@/components/OnboardingModal';
 import SupportButton from '@/components/SupportButton';
 import LoadingIndicator from '@/components/LoadingIndicator';
-import QuickAddTransaction from '@/components/QuickAddTransaction';
 import { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useRouter, usePathname } from 'next/navigation';
@@ -96,7 +95,6 @@ export default function DashboardLayout({
         </main>
       </div>
 
-      <QuickAddTransaction />
       <SupportButton />
       <LoadingIndicator />
     </div>

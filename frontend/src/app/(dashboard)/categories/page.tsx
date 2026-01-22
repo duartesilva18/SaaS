@@ -420,14 +420,14 @@ export default function CategoriesPage() {
               const stat = stats.find(s => s.category_id === cat.id);
               const Icon = getIconComponent(cat.icon);
               const progress = cat.monthly_limit_cents > 0 
-                ? (stat?.total_spent_cents || 0) / cat.monthly_limit_cents * 100 
+                ? Math.abs(stat?.total_spent_cents || 0) / cat.monthly_limit_cents * 100 
                 : 0;
 
               const isExceeded = progress > 100;
               const isAtLimit = Math.abs(progress - 100) < 0.01;
               const isDanger = progress >= 100;
               const isWarning = progress >= 80 && progress < 100;
-              const overAmount = isExceeded ? (stat?.total_spent_cents || 0) - cat.monthly_limit_cents : 0;
+              const overAmount = isExceeded ? Math.abs(stat?.total_spent_cents || 0) - cat.monthly_limit_cents : 0;
               
               const isProtected = cat.is_default || 
                 (cat.vault_type === 'investment' && ['INVESTIMENTO', 'INVESTIMENTOS'].includes(cat.name.toUpperCase())) ||
@@ -511,7 +511,7 @@ export default function CategoriesPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
                         <span className="text-slate-500">{t.dashboard.categories.spent}</span>
-                        <span className="text-white">{formatCurrency((stat?.total_spent_cents || 0) / 100)}</span>
+                        <span className="text-white">{formatCurrency(Math.abs(stat?.total_spent_cents || 0) / 100)}</span>
                       </div>
                       
                       {cat.monthly_limit_cents > 0 && (

@@ -48,15 +48,31 @@ def process_automatic_recurring(db: Session, workspace_id: UUID):
 
 @router.get('/', response_model=List[schemas.TransactionResponse])
 async def get_transactions(request: Request, skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    import logging
+    logger = logging.getLogger("transactions")
+    
     workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail='Workspace not found')
     
     process_automatic_recurring(db, workspace.id)
     
-    return db.query(models.Transaction).filter(
+    # Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
+    all_transactions = db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id
-    ).order_by(models.Transaction.created_at.desc()).offset(skip).limit(limit).all()
+    ).order_by(models.Transaction.created_at.desc()).all()
+    
+    # Filtrar transações de seed antes de paginar
+    filtered_transactions = [t for t in all_transactions if abs(t.amount_cents) != 1]
+    
+    # Aplicar paginação após filtrar
+    transactions = filtered_transactions[skip:skip + limit]
+    
+    logger.info(f"GET /transactions/ - workspace_id: {workspace.id}, user_id: {current_user.id}, total: {len(filtered_transactions)}, returned: {len(transactions)}")
+    if transactions:
+        logger.info(f"Primeira transacao: id={transactions[0].id}, description={transactions[0].description}, amount_cents={transactions[0].amount_cents}, created_at={transactions[0].created_at}")
+    
+    return transactions
 
 @router.post('/', response_model=schemas.TransactionResponse)
 async def create_transaction(request: Request, transaction_in: schemas.TransactionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):

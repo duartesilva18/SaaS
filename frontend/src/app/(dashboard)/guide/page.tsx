@@ -15,13 +15,15 @@ export default function GuidePage() {
   const guide = t.dashboard.guide;
 
   const sectionRoutes = [
-    '/dashboard', // Para WhatsApp (mostra dashboard)
+    'https://t.me/FinanZenApp_bot', // Telegram bot
+    '/dashboard', // WhatsApp (mostra dashboard)
     '/dashboard',
     '/recurring',
     '/analytics'
   ];
 
   const icons = [
+    <Send size={24} />,
     <MessageSquare size={24} />,
     <LayoutDashboard size={24} />,
     <Clock size={24} />,
@@ -79,31 +81,74 @@ export default function GuidePage() {
         </motion.p>
       </section>
 
-      {/* WhatsApp Special Section */}
+      {/* Telegram Special Section */}
       <section className="relative group">
-        <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-600 rounded-[60px] blur opacity-25 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
+        <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-[60px] blur opacity-25 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
         <div className="relative bg-slate-950 rounded-[56px] p-8 md:p-16 border border-white/5 flex flex-col xl:flex-row items-center gap-16 overflow-hidden">
           
           <div className="flex-1 space-y-10 relative z-10">
-            <div className="inline-flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-5 py-2 rounded-full text-emerald-400 text-xs font-black uppercase tracking-widest">
-              <Phone size={16} /> O Coração do FinanZen
+            <div className="inline-flex items-center gap-3 bg-blue-500/10 border border-blue-500/20 px-5 py-2 rounded-full text-blue-400 text-xs font-black uppercase tracking-widest">
+              <Send size={16} /> Bot Telegram
             </div>
             
             <h2 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">
-              Regista no <span className="text-emerald-500 italic">WhatsApp</span> em segundos.
+              Regista no <span className="text-blue-500 italic">Telegram</span> em segundos.
             </h2>
             
             <p className="text-slate-400 text-lg md:text-xl font-medium leading-relaxed max-w-xl">
-              Esquece as apps complicadas. O FinanZen funciona onde tu já estás. Envia uma mensagem, nós tratamos do resto.
+              Múltiplas formas de escrever. Especifica a categoria com um hífen ou deixa a IA categorizar automaticamente.
             </p>
 
+            {/* Formas de Escrever */}
+            <div className="space-y-4 pt-4">
+              <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-800">
+                <h3 className="text-white font-black text-sm uppercase tracking-wider mb-4">Formas de Escrever:</h3>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+                    <div>
+                      <p className="text-white font-bold text-xs mb-1">Formato Simples</p>
+                      <p className="text-slate-400 text-xs font-mono">Bolachas 10€</p>
+                      <p className="text-slate-500 text-[10px] mt-1">A IA categoriza automaticamente</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+                    <div>
+                      <p className="text-white font-bold text-xs mb-1">Com Categoria (Hífen)</p>
+                      <p className="text-slate-400 text-xs font-mono">Iogurtes - Alimentação 5€</p>
+                      <p className="text-slate-500 text-[10px] mt-1">Especifica a categoria diretamente</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+                    <div>
+                      <p className="text-white font-bold text-xs mb-1">Palavras-chave</p>
+                      <p className="text-slate-400 text-xs font-mono">Uber 15€</p>
+                      <p className="text-slate-500 text-[10px] mt-1">Reconhece "Uber" como Transportes</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+                    <div>
+                      <p className="text-white font-bold text-xs mb-1">Receitas</p>
+                      <p className="text-slate-400 text-xs font-mono">Salário 1500€</p>
+                      <p className="text-slate-500 text-[10px] mt-1">Reconhece palavras como "salário", "recebi"</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-4 pt-4">
-              <button 
-                onClick={handleSupportClick}
-                className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-emerald-600/20 active:scale-95 cursor-pointer flex items-center gap-2"
+              <a 
+                href="https://t.me/FinanZenApp_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-95 cursor-pointer flex items-center gap-2"
               >
-                <Phone size={14} /> Abrir WhatsApp Agora
-              </button>
+                <Send size={14} /> Abrir Telegram Bot
+              </a>
               <Link href="/dashboard">
                 <button className="px-8 py-4 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all active:scale-95 cursor-pointer">
                   Ir para Dashboard
@@ -112,22 +157,22 @@ export default function GuidePage() {
             </div>
           </div>
 
-          {/* Chat Simulation */}
+          {/* Telegram Chat Simulation */}
           <div className="w-full xl:w-[450px] shrink-0">
-            <div className="bg-[#0b141a] rounded-[40px] border border-white/10 shadow-2xl overflow-hidden aspect-[9/16] md:aspect-auto md:h-[600px] flex flex-col">
-              {/* WhatsApp Header */}
-              <div className="bg-[#1f2c34] p-4 flex items-center gap-3">
+            <div className="bg-[#212121] rounded-[40px] border border-white/10 shadow-2xl overflow-hidden aspect-[9/16] md:aspect-auto md:h-[600px] flex flex-col">
+              {/* Telegram Header */}
+              <div className="bg-[#2b2b2b] p-4 flex items-center gap-3">
                 <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white">
-                  <Sparkles size={20} />
+                  <Send size={20} />
                 </div>
                 <div>
                   <h4 className="text-white font-bold text-sm">FinanZen Bot</h4>
-                  <p className="text-emerald-500 text-[10px] font-medium tracking-wider uppercase">Online • Sempre pronto</p>
+                  <p className="text-blue-400 text-[10px] font-medium tracking-wider uppercase">Online • Sempre pronto</p>
                 </div>
               </div>
 
               {/* Chat Content */}
-              <div className="flex-1 p-6 space-y-6 overflow-y-auto no-scrollbar bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat bg-[length:400px]">
+              <div className="flex-1 p-6 space-y-6 overflow-y-auto no-scrollbar bg-gradient-to-b from-[#0e1621] to-[#1a2332]">
                 {guide.sections[0].howTo.map((msg: any, idx: number) => (
                   <div key={idx} className="space-y-4">
                     <motion.div 
@@ -136,7 +181,7 @@ export default function GuidePage() {
                       transition={{ delay: idx * 0.5 }}
                       className="flex justify-end"
                     >
-                      <div className="bg-[#005c4b] text-white p-3 rounded-2xl rounded-tr-none max-w-[80%] text-sm shadow-md">
+                      <div className="bg-blue-600 text-white p-3 rounded-2xl rounded-tr-none max-w-[80%] text-sm shadow-md">
                         {msg.user}
                       </div>
                     </motion.div>
@@ -146,8 +191,18 @@ export default function GuidePage() {
                       transition={{ delay: idx * 0.5 + 0.3 }}
                       className="flex justify-start"
                     >
-                      <div className="bg-[#202c33] text-white p-3 rounded-2xl rounded-tl-none max-w-[80%] text-sm shadow-md border border-white/5">
+                      <div className="bg-[#2b2b2b] text-white p-3 rounded-2xl rounded-tl-none max-w-[80%] text-sm shadow-md border border-white/5 whitespace-pre-line">
                         {msg.bot}
+                        {idx === 0 && (
+                          <div className="mt-3 flex gap-2">
+                            <button className="flex-1 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">
+                              ✓ Confirmar
+                            </button>
+                            <button className="flex-1 bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">
+                              ✗ Cancelar
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   </div>
@@ -155,11 +210,11 @@ export default function GuidePage() {
               </div>
 
               {/* Fake Input */}
-              <div className="p-4 bg-[#1f2c34] flex items-center gap-3">
-                <div className="flex-1 bg-[#2a3942] rounded-full h-10 flex items-center px-4 text-slate-400 text-xs">
-                  Escreve 'café 1.5'...
+              <div className="p-4 bg-[#2b2b2b] flex items-center gap-3">
+                <div className="flex-1 bg-[#1e1e1e] rounded-full h-10 flex items-center px-4 text-slate-400 text-xs">
+                  Escreve 'Bolachas 10€' ou 'Iogurtes - Alimentação 5€'...
                 </div>
-                <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-slate-900">
+                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white">
                   <Send size={18} />
                 </div>
               </div>
@@ -178,8 +233,11 @@ export default function GuidePage() {
           animate="show"
           className="grid grid-cols-1 md:grid-cols-3 gap-8"
         >
-          {guide.sections.slice(1).map((section: any, idx: number) => (
-            <Link key={idx} href={sectionRoutes[idx + 1]}>
+          {guide.sections.slice(1).map((section: any, idx: number) => {
+            const route = sectionRoutes[idx + 1];
+            const isExternal = route.startsWith('http');
+            
+            const content = (
               <motion.div 
                 variants={itemAnim}
                 className="group h-full bg-slate-900/40 backdrop-blur-xl border border-slate-800 rounded-[40px] p-8 hover:border-blue-500/30 transition-all shadow-xl cursor-pointer active:scale-[0.98]"
@@ -210,8 +268,18 @@ export default function GuidePage() {
                   <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                 </div>
               </motion.div>
-            </Link>
-          ))}
+            );
+            
+            return isExternal ? (
+              <a key={idx} href={route} target="_blank" rel="noopener noreferrer">
+                {content}
+              </a>
+            ) : (
+              <Link key={idx} href={route}>
+                {content}
+              </Link>
+            );
+          })}
         </motion.div>
       </div>
 

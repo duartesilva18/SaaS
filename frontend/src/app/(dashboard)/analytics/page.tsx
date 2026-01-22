@@ -43,7 +43,8 @@ export default function AnalyticsPage() {
           const isFresh = Date.now() - timestamp < 30000; // 30 segundos de cache "fresca"
           
           setRawData(data);
-          setIsPro(['active', 'trialing'].includes(data.subscription_status));
+          // Inclui 'cancel_at_period_end' para manter acesso até ao fim do período
+          setIsPro(['active', 'trialing', 'cancel_at_period_end'].includes(data.subscription_status));
           if (isFresh) {
             setLoading(false);
             return;
@@ -57,7 +58,8 @@ export default function AnalyticsPage() {
       ]);
 
       const user = profileRes.data;
-      const hasActiveSub = ['active', 'trialing'].includes(user.subscription_status);
+      // Inclui 'cancel_at_period_end' para manter acesso até ao fim do período
+      const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
       
       // Se a subscrição mudou desde a última cache, ignoramos a cache e atualizamos
       const cached = localStorage.getItem('analytics_cache');
@@ -226,11 +228,12 @@ export default function AnalyticsPage() {
         // Apenas despesas que não sejam de investimento/emergência
         return (!cat || cat.type === 'expense') && (!cat || cat.vault_type === 'none');
       })
-      .sort((a: any, b: any) => b.amount_cents - a.amount_cents)
+      .sort((a: any, b: any) => Math.abs(a.amount_cents) - Math.abs(b.amount_cents)) // Ordenar por valor absoluto (maiores primeiro)
+      .reverse()
       .slice(0, 5)
       .map((t: any) => ({
         name: t.description || 'Sem descrição',
-        value: t.amount_cents / 100
+        value: Math.abs(t.amount_cents) / 100 // Mostrar valor absoluto (positivo)
       }));
 
     // Process all transactions for Evolution (Historical)
@@ -285,16 +288,18 @@ export default function AnalyticsPage() {
           monthlyData[monthYear].income += amount;
           periodIncome += amount;
         } else {
-          monthlyData[monthYear].expenses += amount;
-          periodExpenses += amount;
-          catDistribution[cat.name] = (catDistribution[cat.name] || 0) + amount;
-          weeklyRhythm[dayName] += amount;
+          const absAmount = Math.abs(amount); // Usar valor absoluto para despesas
+          monthlyData[monthYear].expenses += absAmount;
+          periodExpenses += absAmount;
+          catDistribution[cat.name] = (catDistribution[cat.name] || 0) + absAmount;
+          weeklyRhythm[dayName] += absAmount;
         }
       } else {
-        monthlyData[monthYear].expenses += amount;
-        periodExpenses += amount;
-        catDistribution['Outros'] = (catDistribution['Outros'] || 0) + amount;
-        weeklyRhythm[dayName] += amount;
+        const absAmount = Math.abs(amount); // Usar valor absoluto para despesas
+        monthlyData[monthYear].expenses += absAmount;
+        periodExpenses += absAmount;
+        catDistribution['Outros'] = (catDistribution['Outros'] || 0) + absAmount;
+        weeklyRhythm[dayName] += absAmount;
       }
     });
 

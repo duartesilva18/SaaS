@@ -46,7 +46,8 @@ export default function FIREPage() {
         ]);
 
         const categories = catRes.data;
-        const transactions = transRes.data;
+        // Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
+        const transactions = transRes.data.filter((t: any) => Math.abs(t.amount_cents) !== 1);
         
         const now = new Date();
         const thisMonthTxs = transactions.filter((t: any) => {

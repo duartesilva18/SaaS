@@ -22,10 +22,11 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
     
     thirty_days_ago = datetime.now() - timedelta(days=30)
     
-    transactions = db.query(models.Transaction).filter(
+    # Filtrar transações de seed (1 cêntimo) - não devem ser contabilizadas
+    transactions = [t for t in db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id,
         models.Transaction.transaction_date >= thirty_days_ago.date()
-    ).all()
+    ).all() if abs(t.amount_cents) != 1]
     
     categories = db.query(models.Category).filter(
         models.Category.workspace_id == workspace.id
@@ -59,16 +60,17 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
     this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
     
-    this_month_transactions = db.query(models.Transaction).filter(
+    # Filtrar transações de seed (1 cêntimo) - não devem ser contabilizadas
+    this_month_transactions = [t for t in db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id,
         models.Transaction.transaction_date >= this_month_start.date()
-    ).all()
+    ).all() if abs(t.amount_cents) != 1]
     
-    last_month_transactions = db.query(models.Transaction).filter(
+    last_month_transactions = [t for t in db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id,
         models.Transaction.transaction_date >= last_month_start.date(),
         models.Transaction.transaction_date < this_month_start.date()
-    ).all()
+    ).all() if abs(t.amount_cents) != 1]
     
     this_income, this_expenses, this_vault, this_expenses_by_cat = calculate_totals(this_month_transactions)
     last_income, last_expenses, last_vault, last_expenses_by_cat = calculate_totals(last_month_transactions)
@@ -253,9 +255,10 @@ async def get_analytics_composite(db: Session = Depends(get_db), current_user: m
     
     zen_insights = await get_zen_insights(db, current_user)
     
-    transactions = db.query(models.Transaction).filter(
+    # Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
+    transactions = [t for t in db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id
-    ).order_by(models.Transaction.transaction_date.desc()).all()
+    ).order_by(models.Transaction.transaction_date.desc()).all() if abs(t.amount_cents) != 1]
     
     categories = db.query(models.Category).filter(
         models.Category.workspace_id == workspace.id

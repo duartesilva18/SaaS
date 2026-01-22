@@ -25,6 +25,7 @@ class User(Base):
     subscription_status = Column(String(50), nullable=False, default='none')
     stripe_customer_id = Column(String(255), unique=True, nullable=True)
     stripe_subscription_id = Column(String(255), unique=True, nullable=True)
+    telegram_auto_confirm = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     
@@ -164,4 +165,43 @@ class SavingsGoal(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     
     workspace = relationship('Workspace', back_populates='savings_goals')
+
+class TelegramPendingTransaction(Base):
+    __tablename__ = 'telegram_pending_transactions'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id = Column(String, nullable=False, index=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey('categories.id', ondelete='SET NULL'), nullable=True)
+    amount_cents = Column(Integer, nullable=False)
+    description = Column(String(255), nullable=False)
+    transaction_date = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    
+    workspace = relationship('Workspace')
+    category = relationship('Category')
+
+class CategoryMappingCache(Base):
+    """
+    Cache de categorizações do Gemini para evitar chamadas repetidas.
+    Guarda o mapeamento: descrição normalizada -> category_id
+    Pode ser por workspace (privado) ou global (partilhado entre utilizadores)
+    """
+    __tablename__ = 'category_mapping_cache'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=True, index=True)  # NULL = cache global
+    description_normalized = Column(String(255), nullable=False, index=True)  # Descrição normalizada (lowercase, sem acentos)
+    category_name = Column(String(100), nullable=False)  # Nome da categoria (para cache global, não precisa de category_id específico)
+    category_id = Column(UUID(as_uuid=True), ForeignKey('categories.id', ondelete='CASCADE'), nullable=True)  # NULL para cache global
+    transaction_type = Column(String(10), nullable=False)  # 'expense' ou 'income'
+    usage_count = Column(Integer, nullable=False, default=1)  # Quantas vezes foi usado
+    is_global = Column(Boolean, nullable=False, default=False)  # True = cache global partilhado
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    
+    workspace = relationship('Workspace')
+    category = relationship('Category')
+    
+    __table_args__ = (
+        UniqueConstraint('workspace_id', 'description_normalized', 'transaction_type', name='unique_workspace_mapping'),
+    )
 

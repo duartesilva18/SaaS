@@ -70,7 +70,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
-  const isPro = user?.subscription_status === 'active' || user?.subscription_status === 'trialing';
+  // Considera Pro se estiver ativo, em trial, ou marcado para cancelar no fim do período
+  // Status 'past_due' e 'unpaid' não são considerados Pro (acesso bloqueado)
+  // 'cancel_at_period_end' mantém acesso até ao fim do período pago
+  const isPro = user?.subscription_status === 'active' 
+    || user?.subscription_status === 'trialing' 
+    || user?.subscription_status === 'cancel_at_period_end';
 
   return (
     <UserContext.Provider value={{ user, loading, refreshUser: fetchUser, logout, isPro }}>
