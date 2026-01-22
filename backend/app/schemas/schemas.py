@@ -113,6 +113,7 @@ class TransactionResponse(TransactionBase):
     id: UUID
     workspace_id: UUID
     installment_group_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import api from '@/lib/api';
 import { 
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
@@ -34,6 +34,7 @@ export default function AnalyticsPage() {
   const [isEvoInfoOpen, setIsEvoInfoOpen] = useState(false);
   const [isVaultInfoOpen, setIsVaultInfoOpen] = useState(false);
   const [recurringToConfirm, setRecurringToConfirm] = useState<any>(null);
+  const lastUpdateTimestampRef = useRef<number | null>(null);
 
   const fetchAnalytics = async (force = false) => {
     try {
@@ -91,9 +92,11 @@ export default function AnalyticsPage() {
       }
 
       setRawData(compositeData);
+      const cacheTimestamp = Date.now();
+      lastUpdateTimestampRef.current = cacheTimestamp;
       localStorage.setItem('analytics_cache', JSON.stringify({
         data: compositeData,
-        timestamp: Date.now()
+        timestamp: cacheTimestamp
       }));
     } catch (err) {
       console.error('Erro ao carregar análise:', err);
@@ -104,7 +107,56 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     fetchAnalytics();
-  }, []);
+    
+    // Função para verificar se há dados novos
+    const checkForNewData = async () => {
+      try {
+        // Buscar apenas a última transação para verificar se há dados novos
+        const [profileRes, transRes] = await Promise.all([
+          api.get('/auth/me'),
+          api.get('/transactions/?limit=1') // Apenas a última transação
+        ]);
+
+        const user = profileRes.data;
+        const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
+        
+        if (!hasActiveSub) return; // Não verificar se não for Pro
+
+        // Filtrar transações de seed
+        const latestTransactions = transRes.data.filter((t: any) => Math.abs(t.amount_cents) !== 1);
+        
+        if (latestTransactions.length > 0) {
+          const latestTransaction = latestTransactions[0];
+          const latestCreatedAt = new Date(latestTransaction.created_at || latestTransaction.transaction_date).getTime();
+          
+          // Obter o timestamp da última atualização do ref ou cache
+          const currentTimestamp = lastUpdateTimestampRef.current || (() => {
+            const cached = localStorage.getItem('analytics_cache');
+            if (cached) {
+              const { timestamp } = JSON.parse(cached);
+              return timestamp;
+            }
+            return null;
+          })();
+          
+          // Se a última transação é mais recente que a nossa última atualização, atualizar
+          if (!currentTimestamp || latestCreatedAt > currentTimestamp) {
+            console.log('Dados novos detetados, atualizando...');
+            await fetchAnalytics(true); // Forçar atualização completa
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao verificar dados novos:', err);
+      }
+    };
+    
+    // Verificar dados novos a cada 10 segundos
+    const interval = setInterval(() => {
+      checkForNewData();
+    }, 10000); // 10 segundos
+    
+    return () => clearInterval(interval);
+  }, []); // Array vazio - só executa uma vez no mount
 
   const handleConfirmRecurring = async (recurringId: string) => {
     try {
@@ -149,8 +201,14 @@ export default function AnalyticsPage() {
     const evolutionData: any[] = [];
 
     // Filter and Sort for Recent Transactions
+    // Ordenar por created_at (quando foi criada) em vez de transaction_date para incluir transações do Telegram
     const recentTransactions = [...rawData.transactions]
-      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
+      .sort((a, b) => {
+        // Usar created_at se disponível, senão usar transaction_date
+        const dateA = new Date(a.created_at || a.transaction_date).getTime();
+        const dateB = new Date(b.created_at || b.transaction_date).getTime();
+        return dateB - dateA; // Mais recente primeiro
+      })
       .slice(0, 5)
       .map(t => ({
         ...t,
@@ -244,13 +302,15 @@ export default function AnalyticsPage() {
       const amount = t.amount_cents / 100;
       
       // Calculate Vault totals (all time)
+      // IMPORTANTE: amount pode ser positivo (receita) ou negativo (despesa)
+      // Para vault: amount negativo = adiciona ao vault, amount positivo = retira do vault (resgate)
       if (cat?.vault_type === 'investment') {
-        if (cat.type === 'expense') investmentTotal += amount;
-        else investmentTotal -= amount; // Resgate de investimento
+        // Se amount é negativo (despesa), adiciona ao total. Se positivo (receita), subtrai (resgate)
+        investmentTotal += amount; // amount negativo adiciona, amount positivo subtrai
       }
       if (cat?.vault_type === 'emergency') {
-        if (cat.type === 'expense') emergencyTotal += amount;
-        else emergencyTotal -= amount; // Resgate de emergência
+        // Se amount é negativo (despesa), adiciona ao total. Se positivo (receita), subtrai (resgate)
+        emergencyTotal += amount; // amount negativo adiciona, amount positivo subtrai
       }
 
       // Património Acumulado: Não subtrair investimentos (pois o dinheiro ainda é seu)
@@ -894,7 +954,7 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
                 <span className={`text-sm font-black ${t.category?.type === 'income' ? 'text-emerald-400' : 'text-white'}`}>
-                  {t.category?.type === 'income' ? '+' : '-'}{formatCurrency(t.amount_cents / 100)}
+                  {t.category?.type === 'income' ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
                 </span>
               </div>
             ))}

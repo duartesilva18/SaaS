@@ -45,8 +45,10 @@ const motivationalQuotes = [
 
 export default function LoadingScreen() {
   const [quoteIndex, setQuoteIndex] = useState(0);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const interval = setInterval(() => {
       setQuoteIndex((prev) => (prev + 1) % motivationalQuotes.length);
     }, 3000); // Muda de frase a cada 3 segundos
@@ -161,28 +163,34 @@ export default function LoadingScreen() {
       </div>
 
       {/* Floating Particles */}
-      {typeof window !== 'undefined' && [...Array(6)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-2 h-2 bg-blue-500/20 rounded-full"
-          initial={{
-            x: Math.random() * (window.innerWidth || 1920),
-            y: Math.random() * (window.innerHeight || 1080),
-            opacity: 0
-          }}
-          animate={{
-            y: [null, -100, -200],
-            opacity: [0, 0.5, 0],
-            scale: [0.5, 1, 0.5]
-          }}
-          transition={{
-            duration: 3 + Math.random() * 2,
-            repeat: Infinity,
-            delay: Math.random() * 2,
-            ease: "easeOut"
-          }}
-        />
-      ))}
+      {mounted && [...Array(6)].map((_, i) => {
+        // Usar valores fixos baseados no índice para evitar diferenças entre servidor e cliente
+        const baseX = (i % 3) * 200 - 200;
+        const baseY = Math.floor(i / 3) * 200 - 200;
+        return (
+          <motion.div
+            key={i}
+            className="absolute w-2 h-2 bg-blue-500/20 rounded-full"
+            initial={{
+              x: baseX,
+              y: baseY,
+              opacity: 0
+            }}
+            animate={{
+              x: [baseX, baseX + 100, baseX - 100, baseX],
+              y: [baseY, baseY - 100, baseY - 200, baseY],
+              opacity: [0, 0.5, 0.5, 0],
+              scale: [0.5, 1, 1, 0.5]
+            }}
+            transition={{
+              duration: 3 + (i * 0.3),
+              repeat: Infinity,
+              delay: i * 0.3,
+              ease: "easeOut"
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
