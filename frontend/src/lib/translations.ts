@@ -10,7 +10,7 @@ export const translations = {
             title1: "A sua ",
             titleAccent: "paz financeira",
             title2: " começa com um SMS.",
-            description: "O FinanZen elimina a confusão das contas. Registe despesas no WhatsApp em 3 segundos e relaxe.",
+            description: "O FinanZen elimina a confusão das contas. Registe despesas no Telegram em 3 segundos e relaxe.",
             cta: "Experimentar Grátis"
         },
         pricing: {
@@ -22,7 +22,7 @@ export const translations = {
                 price: "9,99€",
                 period: "/mês",
                 features: [
-                    'WhatsApp Ilimitado',
+                    'Telegram Ilimitado',
                     'Gráficos Inteligentes',
                     'Exportação de Dados',
                     'Suporte Prioritário'
@@ -51,7 +51,7 @@ export const translations = {
             items: [
                 {
                     t: "1. Ligue",
-                    d: "Conecte o seu WhatsApp em 10 segundos."
+                    d: "Conecte o seu Telegram em 10 segundos."
                 },
                 {
                     t: "2. Escreva",
@@ -69,7 +69,7 @@ export const translations = {
                     id: 1,
                     name: "João Silva",
                     role: "Gestor de Frota",
-                    text: "Finalmente percebi para onde ia o meu dinheiro. O WhatsApp é genial!",
+                    text: "Finalmente percebi para onde ia o meu dinheiro. O Telegram é genial!",
                     initial: "JS"
                 },
                 {
@@ -110,7 +110,7 @@ export const translations = {
             titleAccent: "trabalha para si.",
             items: [
                 {
-                    t: "WhatsApp Fin",
+                    t: "Telegram Fin",
                     d: "A nossa IA lê as suas mensagens e organiza tudo instantaneamente."
                 },
                 {
@@ -142,8 +142,8 @@ export const translations = {
             guarantee: "Paz total garantida por 7 dias",
             items: [
                 {
-                    q: "É seguro ligar o meu WhatsApp?",
-                    a: "Totalmente. Utilizamos a API oficial da Meta e encriptação de ponta a ponta. O FinanZen apenas processa as mensagens que envia diretamente para o nosso número. Nunca solicitamos dados bancários ou passwords."
+                    q: "É seguro ligar o meu Telegram?",
+                    a: "Totalmente. Utilizamos a API oficial do Telegram e encriptação de ponta a ponta. O FinanZen apenas processa as mensagens que envia diretamente para o nosso bot. Nunca solicitamos dados bancários ou passwords."
                 },
                 {
                     q: "Como funciona a garantia de 7 dias?",
@@ -151,7 +151,7 @@ export const translations = {
                 },
                 {
                     q: "Preciso de instalar alguma aplicação?",
-                    a: "Não. O FinanZen funciona diretamente no seu WhatsApp e através do nosso dashboard web otimizado para telemóvel. Simplicidade total."
+                    a: "Não. O FinanZen funciona diretamente no seu Telegram e através do nosso dashboard web otimizado para telemóvel. Simplicidade total."
                 },
                 {
                     q: "O plano anual é cobrado de uma só vez?",
@@ -283,7 +283,7 @@ export const translations = {
                 titleAccent: "FinanZen",
                 subtitle: "Precisamos de mais alguns detalhes para personalizar a tua experiência.",
                 fullName: "Nome Completo",
-                phone: "Telemóvel (WhatsApp)",
+                phone: "Telemóvel (Telegram)",
                 currency: "Moeda Principal",
                 gender: "Género",
                 genderOptions: {
@@ -302,7 +302,7 @@ export const translations = {
                 personalData: {
                     title: "Dados Pessoais",
                     fullName: "Nome Completo",
-                    phone: "Telemóvel (WhatsApp)",
+                    phone: "Telemóvel (Telegram)",
                     gender: "Género",
                     save: "Guardar Alterações"
                 },
@@ -361,13 +361,13 @@ export const translations = {
                 subtitle: "Domina as ferramentas do FinanZen e alcança a paz financeira.",
                 sections: [
                     {
-                        title: "WhatsApp Fin",
+                        title: "Telegram Fin",
                         description: "A alma do FinanZen. Regista qualquer gasto ou ganho em segundos sem abrir a app.",
                         features: [
                             "Formato Simples: 'nome valor' (ex: café 1.5)",
                             "Linguagem Natural: O sistema entende o que escreves.",
                             "Categorização Automática: A IA aprende os teus hábitos.",
-                            "Sem Instalações: Usa o WhatsApp que já tens."
+                            "Sem Instalações: Usa o Telegram que já tens."
                         ],
                         howTo: [
                             {
@@ -423,7 +423,7 @@ export const translations = {
             title1: "Your ",
             titleAccent: "financial peace",
             title2: " starts with a text.",
-            description: "FinanZen eliminates the confusion of bills. Log expenses on WhatsApp in 3 seconds and relax.",
+            description: "FinanZen eliminates the confusion of bills. Log expenses on Telegram in 3 seconds and relax.",
             cta: "Try for Free"
         },
         pricing: {
@@ -435,7 +435,7 @@ export const translations = {
                 price: "€9.99",
                 period: "/month",
                 features: [
-                    'Unlimited WhatsApp',
+                    'Unlimited Telegram',
                     'Smart Charts',
                     'Data Export',
                     'Priority Support'
@@ -464,7 +464,7 @@ export const translations = {
             items: [
                 {
                     t: "1. Connect",
-                    d: "Connect your WhatsApp in 10 seconds."
+                    d: "Connect your Telegram in 10 seconds."
                 },
                 {
                     t: "2. Text",
@@ -482,7 +482,7 @@ export const translations = {
                     id: 1,
                     name: "John Smith",
                     role: "Fleet Manager",
-                    text: "Finally realized where my money was going. WhatsApp is genius!",
+                    text: "Finally realized where my money was going. Telegram is genius!",
                     initial: "JS"
                 },
                 {
@@ -523,7 +523,7 @@ export const translations = {
             titleAccent: "works for you.",
             items: [
                 {
-                    t: "WhatsApp Fin",
+                    t: "Telegram Fin",
                     d: "Our AI reads your messages and organizes everything instantly."
                 },
                 {
@@ -555,8 +555,8 @@ export const translations = {
             guarantee: "Total peace guaranteed for 7 days",
             items: [
                 {
-                    q: "Is it safe to connect my WhatsApp?",
-                    a: "Absolutely. We use the official Meta API and end-to-end encryption. FinanZen only processes messages you send directly to our number. We never ask for bank details or passwords."
+                    q: "Is it safe to connect my Telegram?",
+                    a: "Absolutely. We use the official Telegram API and end-to-end encryption. FinanZen only processes messages you send directly to our bot. We never ask for bank details or passwords."
                 },
                 {
                     q: "How does the 7-day guarantee work?",
@@ -564,7 +564,7 @@ export const translations = {
                 },
                 {
                     q: "Do I need to install any application?",
-                    a: "No. FinanZen works directly on your WhatsApp and through our mobile-optimized web dashboard. Total simplicity."
+                    a: "No. FinanZen works directly on your Telegram and through our mobile-optimized web dashboard. Total simplicity."
                 },
                 {
                     q: "Is the annual plan charged all at once?",
@@ -696,7 +696,7 @@ export const translations = {
                 titleAccent: "FinanZen",
                 subtitle: "We need a few more details to personalize your experience.",
                 fullName: "Full Name",
-                phone: "Phone (WhatsApp)",
+                phone: "Phone (Telegram)",
                 currency: "Primary Currency",
                 gender: "Gender",
                 genderOptions: {
@@ -715,7 +715,7 @@ export const translations = {
                 personalData: {
                     title: "Personal Data",
                     fullName: "Full Name",
-                    phone: "Phone (WhatsApp)",
+                    phone: "Phone (Telegram)",
                     gender: "Gender",
                     save: "Save Changes"
                 },
@@ -799,13 +799,13 @@ export const translations = {
                         ]
                     },
                     {
-                        title: "WhatsApp Fin",
+                        title: "Telegram Fin",
                         description: "The soul of FinanZen. Register any expense or income in seconds without opening the app.",
                         features: [
                             "Simple Format: 'name value' (e.g., coffee 1.5)",
                             "Natural Language: The system understands what you write.",
                             "Automatic Categorization: AI learns your habits.",
-                            "No Installations: Use the WhatsApp you already have."
+                            "No Installations: Use the Telegram you already have."
                         ],
                         howTo: [
                             {
