@@ -18,6 +18,7 @@ import { useTranslation } from '@/lib/LanguageContext';
 import { DEMO_TRANSACTIONS, DEMO_CATEGORIES, DEMO_INSIGHTS, DEMO_RECURRING } from '@/lib/mockData';
 import Link from 'next/link';
 import { Lock, ArrowRight } from 'lucide-react';
+import { ChartSkeleton, DashboardSkeleton } from '@/components/LoadingSkeleton';
 
 export default function AnalyticsPage() {
   const { t, formatCurrency } = useTranslation();
@@ -335,12 +336,13 @@ export default function AnalyticsPage() {
 
   if (loading || !processedData) {
     return (
-      <div className="min-h-[80vh] flex flex-col items-center justify-center gap-6 text-white">
-        <div className="relative">
-          <div className="absolute inset-0 bg-blue-500 blur-[40px] opacity-20 animate-pulse" />
-          <Brain size={64} className="text-blue-500 animate-bounce relative z-10" />
+      <div className="space-y-6">
+        <div className="h-32 bg-slate-900/40 rounded-2xl animate-pulse" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ChartSkeleton />
+          <ChartSkeleton />
         </div>
-        <p className="text-sm font-black uppercase tracking-[0.4em] animate-pulse opacity-50">Processando Ecossistema...</p>
+        <ChartSkeleton />
       </div>
     );
   }

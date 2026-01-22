@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from ..core.dependencies import get_db
 from ..core.audit import log_action
@@ -57,18 +58,19 @@ async def get_transactions(request: Request, skip: int = 0, limit: int = 100, db
     
     process_automatic_recurring(db, workspace.id)
     
-    # Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
-    all_transactions = db.query(models.Transaction).filter(
-        models.Transaction.workspace_id == workspace.id
-    ).order_by(models.Transaction.created_at.desc()).all()
+    # Filtrar transações de seed (1 cêntimo) diretamente na query SQL - muito mais rápido
+    transactions = db.query(models.Transaction).filter(
+        models.Transaction.workspace_id == workspace.id,
+        func.abs(models.Transaction.amount_cents) != 1
+    ).order_by(models.Transaction.created_at.desc()).offset(skip).limit(limit).all()
     
-    # Filtrar transações de seed antes de paginar
-    filtered_transactions = [t for t in all_transactions if abs(t.amount_cents) != 1]
+    # Contar total para logging (sem paginação)
+    total_count = db.query(models.Transaction).filter(
+        models.Transaction.workspace_id == workspace.id,
+        func.abs(models.Transaction.amount_cents) != 1
+    ).count()
     
-    # Aplicar paginação após filtrar
-    transactions = filtered_transactions[skip:skip + limit]
-    
-    logger.info(f"GET /transactions/ - workspace_id: {workspace.id}, user_id: {current_user.id}, total: {len(filtered_transactions)}, returned: {len(transactions)}")
+    logger.info(f"GET /transactions/ - workspace_id: {workspace.id}, user_id: {current_user.id}, total: {total_count}, returned: {len(transactions)}")
     if transactions:
         logger.info(f"Primeira transacao: id={transactions[0].id}, description={transactions[0].description}, amount_cents={transactions[0].amount_cents}, created_at={transactions[0].created_at}")
     

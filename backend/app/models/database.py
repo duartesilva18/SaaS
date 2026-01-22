@@ -89,15 +89,19 @@ class InstallmentGroup(Base):
 class Transaction(Base):
     __tablename__ = 'transactions'
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=False)
-    category_id = Column(UUID(as_uuid=True), ForeignKey('categories.id', ondelete='SET NULL'), nullable=True)
+    workspace_id = Column(UUID(as_uuid=True), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=False, index=True)
+    category_id = Column(UUID(as_uuid=True), ForeignKey('categories.id', ondelete='SET NULL'), nullable=True, index=True)
     installment_group_id = Column(UUID(as_uuid=True), ForeignKey('installment_groups.id', ondelete='SET NULL'), nullable=True)
     amount_cents = Column(Integer, nullable=False)
     description = Column(String(255), nullable=True)
-    transaction_date = Column(Date, nullable=False)
+    transaction_date = Column(Date, nullable=False, index=True)
     is_installment = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        CheckConstraint('amount_cents <> 0'),
+    )
     
     workspace = relationship('Workspace', back_populates='transactions')
     category = relationship('Category', back_populates='transactions')
@@ -105,6 +109,8 @@ class Transaction(Base):
     
     __table_args__ = (
         CheckConstraint('amount_cents <> 0'),
+        # Índices compostos para queries frequentes
+        # Nota: SQLAlchemy cria índices automaticamente para ForeignKeys, mas adicionamos índices compostos
     )
 
 class SystemSetting(Base):

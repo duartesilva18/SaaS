@@ -4,11 +4,13 @@ import Sidebar from '@/components/Sidebar';
 import OnboardingModal from '@/components/OnboardingModal';
 import SupportButton from '@/components/SupportButton';
 import LoadingIndicator from '@/components/LoadingIndicator';
+import LoadingScreen from '@/components/LoadingScreen';
 import { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { Menu, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DashboardLayout({
   children,
@@ -43,11 +45,7 @@ export default function DashboardLayout({
   }, [user, loading, router, setCurrency]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#020617] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!user) return null;
@@ -89,9 +87,18 @@ export default function DashboardLayout({
         </header>
 
         <main className={`flex-1 transition-all duration-500 ease-[0.16,1,0.3,1] ${isSidebarCollapsed ? 'lg:ml-24' : 'lg:ml-72'} relative z-10 overflow-y-auto`}>
-          <div className="w-full px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8">
-            {children}
-          </div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8"
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 

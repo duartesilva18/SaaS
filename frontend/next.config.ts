@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Otimização de Bundle Size (compatível com Turbopack)
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'recharts', 'framer-motion'],
+  },
+  // Turbopack config (Next.js 16 usa Turbopack por padrão)
+  turbopack: {},
 };
 
 export default nextConfig;

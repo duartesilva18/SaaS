@@ -15,6 +15,8 @@ import Toast from '@/components/Toast';
 import confetti from 'canvas-confetti';
 import { Crown, Star, Check, Sparkles as SparklesIcon, Zap as ZapIcon, ArrowRightCircle, X, Loader2 } from 'lucide-react';
 import { useUser } from '@/lib/UserContext';
+import { DashboardSkeleton } from '@/components/LoadingSkeleton';
+import LoadingScreen from '@/components/LoadingScreen';
 
 export default function DashboardPage() {
   const { t, formatCurrency } = useTranslation();
@@ -127,16 +129,165 @@ export default function DashboardPage() {
     }
 
     const fetchData = async () => {
+      // Garantir que a tela de loading aparece pelo menos 1 segundo
+      const minLoadingTime = new Promise(resolve => setTimeout(resolve, 1000));
+      
       try {
+        // Verificar cache primeiro (2 minutos) - só na primeira vez demora
+        const cacheKey = 'dashboard_cache';
+        const cached = localStorage.getItem(cacheKey);
+        if (cached && !searchParams.get('session_id')) {
+          const { data: cachedData, timestamp } = JSON.parse(cached);
+          const isFresh = Date.now() - timestamp < 120000; // 2 minutos
+          if (isFresh) {
+            // Usar dados em cache - muito mais rápido!
+            const user = cachedData.user;
+            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
+            setIsPro(hasActiveSub);
+            if (!hasActiveSub && !searchParams.get('session_id')) {
+              setShowPaywall(true);
+            }
+            
+            let transactions = cachedData.transactions.filter((t: any) => Math.abs(t.amount_cents) !== 1);
+            let categories = cachedData.categories;
+            
+            if (!hasActiveSub && transactions.length === 0) {
+              transactions = DEMO_TRANSACTIONS;
+              categories = DEMO_CATEGORIES;
+            }
+            
+            // Reutilizar toda a lógica de cálculo abaixo (copiada para cache)
+            let income = 0;
+            let expenses = 0;
+            let vault = 0;
+            const categoryMap = categories.reduce((acc: any, cat: any) => {
+              acc[cat.id] = { ...cat, total: 0 };
+              return acc;
+            }, {});
+            
+            transactions.forEach((t: any) => {
+              const cat = categoryMap[t.category_id];
+              if (cat) {
+                const amount = Math.abs(Number(t.amount_cents || 0) / 100);
+                cat.total += amount;
+                if (cat.type === 'income') {
+                  income += amount;
+                } else {
+                  if (cat.nature === 'investment' || cat.nature === 'emergency' || cat.vault_type !== 'none') {
+                    vault += amount;
+                  } else {
+                    expenses += amount;
+                  }
+                }
+              }
+            });
+            
+            const newAlerts = categories
+              .filter((cat: any) => cat.type === 'expense' && cat.monthly_limit_cents > 0)
+              .map((cat: any) => {
+                const currentSpent = categoryMap[cat.id]?.total || 0;
+                const limit = cat.monthly_limit_cents / 100;
+                const progress = (currentSpent / limit) * 100;
+                if (progress >= 100) {
+                  const overAmount = currentSpent - limit;
+                  return {
+                    type: 'danger',
+                    title: overAmount > 0 ? 'Limite Excedido!' : 'Limite Atingido!',
+                    message: overAmount > 0 
+                      ? `Gastaste mais ${formatCurrency(overAmount)} em ${cat.name} do que o planeado.`
+                      : `Atingiste o teu limite planeado de ${formatCurrency(limit)} em ${cat.name}.`,
+                    category: cat.name,
+                    icon: 'AlertCircle'
+                  };
+                } else if (progress >= 80) {
+                  return {
+                    type: 'warning',
+                    title: 'Atenção ao Limite',
+                    message: `Estás a ${Math.max(1, Math.round(100 - progress))}% de atingir o limite em ${cat.name}.`,
+                    category: cat.name,
+                    icon: 'Zap'
+                  };
+                }
+                return null;
+              })
+              .filter(Boolean);
+            
+            setAlerts(newAlerts);
+            
+            const totalLimits = (categories || [])
+              .filter((c: any) => c.type === 'expense')
+              .reduce((sum: number, c: any) => sum + (Number(c.monthly_limit_cents || 0) / 100), 0);
+            
+            const now = new Date();
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const daysPassed = now.getDate();
+            const daysLeft = Math.max(1, daysInMonth - daysPassed);
+            const totalBudget = income > 0 ? income : totalLimits;
+            const remainingMoney = Math.max(0, totalBudget - expenses - vault);
+            const dailyAllowance = remainingMoney / daysLeft;
+            const efficiencyScore = (income > 0) ? ((income - expenses) / income) * 100 : 0;
+            
+            const dailySpending: any = {};
+            const daysInMonthTotal = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            for (let i = 1; i <= daysInMonthTotal; i++) {
+              dailySpending[i] = 0;
+            }
+            
+            transactions.forEach((t: any) => {
+              const tDate = new Date(t.transaction_date);
+              if (tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear()) {
+                const cat = categoryMap[t.category_id];
+                if (cat && cat.type === 'expense' && cat.vault_type === 'none') {
+                  dailySpending[tDate.getDate()] += Math.abs(Number(t.amount_cents || 0) / 100);
+                }
+              }
+            });
+            
+            const formattedTrendData = Object.entries(dailySpending).map(([day, amount]) => ({
+              day: `${day}`,
+              amount: Number(amount),
+              limit: dailyAllowance > 0 ? dailyAllowance : null
+            }));
+            
+            setTrendData(formattedTrendData as any);
+            setStats({ 
+              income: Number(income || 0), 
+              expenses: Number(expenses || 0), 
+              balance: Number((income - expenses) || 0), 
+              vault: Number(vault || 0),
+              totalLimits: Number(totalBudget || 0),
+              dailyAllowance: Number(dailyAllowance || 0),
+              efficiencyScore: Number(efficiencyScore || 0)
+            });
+            setChartData(Object.values(categoryMap).filter((c: any) => c.total > 0) as any);
+            // Aguardar pelo menos 1 segundo antes de esconder o loading
+            await minLoadingTime;
+            setLoading(false);
+            return; // Sair cedo se usar cache
+          }
+        }
+
+        // Limitar transações a 100 para melhor performance
         const [profileRes, transRes, catRes, invoicesRes] = await Promise.all([
           api.get('/auth/me'),
-          api.get('/transactions/'),
+          api.get('/transactions/?limit=100'),
           api.get('/categories/'),
           api.get('/stripe/invoices')
         ]);
         
         const user = profileRes.data;
         const invoices = invoicesRes.data;
+        
+        // Guardar no cache após buscar
+        localStorage.setItem(cacheKey, JSON.stringify({
+          data: {
+            user,
+            transactions: transRes.data,
+            categories: catRes.data,
+            invoices
+          },
+          timestamp: Date.now()
+        }));
 
         // Verificar se há faturas não pagas
         const hasUnpaid = invoices.some((inv: any) => 
@@ -291,19 +442,100 @@ export default function DashboardPage() {
       } catch (err) {
         console.error(err);
       } finally {
+        // Aguardar pelo menos 1 segundo antes de esconder o loading
+        await minLoadingTime;
         setLoading(false);
+        
+        // Prefetch dos dados da Análise Pro em background (não bloqueia)
+        const prefetchAnalytics = async () => {
+          try {
+            const [profileRes, analyticsRes] = await Promise.all([
+              api.get('/auth/me'),
+              api.get('/insights/composite')
+            ]);
+            
+            const user = profileRes.data;
+            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
+            
+            let compositeData = {
+              ...analyticsRes.data,
+              subscription_status: user.subscription_status
+            };
+            
+            // Se não for Pro e não tiver dados reais, não guardar (vai usar demo quando abrir)
+            if (!hasActiveSub && compositeData.transactions.length === 0) {
+              return;
+            }
+            
+            // Guardar no cache para uso imediato na página de analytics
+            localStorage.setItem('analytics_cache', JSON.stringify({
+              data: compositeData,
+              timestamp: Date.now()
+            }));
+          } catch (err) {
+            // Silenciar erros de prefetch - não é crítico
+            console.log('Prefetch analytics opcional falhou (não crítico)');
+          }
+        };
+        
+        // Iniciar prefetch em background (não esperar)
+        prefetchAnalytics();
       }
     };
     fetchData();
   }, []);
 
+  // Prefetch dos dados da Análise Pro quando o dashboard já está carregado
+  useEffect(() => {
+    if (!loading && isPro) {
+      // Aguardar 2 segundos após o dashboard carregar antes de fazer prefetch
+      const timer = setTimeout(() => {
+        const prefetchAnalytics = async () => {
+          try {
+            // Verificar se já existe cache recente (menos de 30 segundos)
+            const cached = localStorage.getItem('analytics_cache');
+            if (cached) {
+              const { timestamp } = JSON.parse(cached);
+              if (Date.now() - timestamp < 30000) {
+                return; // Cache ainda fresca, não precisa atualizar
+              }
+            }
+            
+            const [profileRes, analyticsRes] = await Promise.all([
+              api.get('/auth/me'),
+              api.get('/insights/composite')
+            ]);
+            
+            const user = profileRes.data;
+            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
+            
+            if (!hasActiveSub) return; // Só prefetch se for Pro
+            
+            let compositeData = {
+              ...analyticsRes.data,
+              subscription_status: user.subscription_status
+            };
+            
+            // Guardar no cache para uso imediato na página de analytics
+            localStorage.setItem('analytics_cache', JSON.stringify({
+              data: compositeData,
+              timestamp: Date.now()
+            }));
+          } catch (err) {
+            // Silenciar erros de prefetch - não é crítico
+            console.log('Prefetch analytics em background falhou (não crítico)');
+          }
+        };
+        
+        prefetchAnalytics();
+      }, 2000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading, isPro]);
+
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-        <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 animate-pulse">A carregar dashboard...</p>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return (

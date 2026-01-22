@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
+import { TransactionSkeleton } from '@/components/LoadingSkeleton';
 
 interface Transaction {
   id: string;
@@ -81,10 +82,10 @@ export default function TransactionsPage() {
   useEffect(() => {
     fetchData();
     
-    // Atualizar dados automaticamente a cada 30 segundos
+    // Atualizar dados automaticamente a cada 60 segundos (reduzido de 30s para melhor performance)
     const interval = setInterval(() => {
       fetchData();
-    }, 30000); // 30 segundos
+    }, 60000); // 60 segundos
     
     return () => clearInterval(interval);
   }, []);
@@ -219,12 +220,11 @@ export default function TransactionsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-[80vh] flex flex-col items-center justify-center gap-6">
-        <div className="relative">
-          <div className="absolute inset-0 bg-blue-500 blur-[40px] opacity-20 animate-pulse" />
-          <History size={64} className="text-blue-500 animate-spin relative z-10" />
+      <div className="max-w-[1400px] mx-auto space-y-12 pb-20 px-2 md:px-0">
+        <div className="space-y-6">
+          <div className="h-32 bg-slate-900/40 rounded-2xl animate-pulse" />
+          <TransactionSkeleton />
         </div>
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 animate-pulse">A carregar o teu histórico...</p>
       </div>
     );
   }

@@ -22,11 +22,12 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
     
     thirty_days_ago = datetime.now() - timedelta(days=30)
     
-    # Filtrar transações de seed (1 cêntimo) - não devem ser contabilizadas
-    transactions = [t for t in db.query(models.Transaction).filter(
+    # Filtrar transações de seed (1 cêntimo) diretamente na query SQL - muito mais rápido
+    transactions = db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id,
-        models.Transaction.transaction_date >= thirty_days_ago.date()
-    ).all() if abs(t.amount_cents) != 1]
+        models.Transaction.transaction_date >= thirty_days_ago.date(),
+        func.abs(models.Transaction.amount_cents) != 1
+    ).all()
     
     categories = db.query(models.Category).filter(
         models.Category.workspace_id == workspace.id
@@ -60,17 +61,19 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
     this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
     
-    # Filtrar transações de seed (1 cêntimo) - não devem ser contabilizadas
-    this_month_transactions = [t for t in db.query(models.Transaction).filter(
+    # Filtrar transações de seed (1 cêntimo) diretamente na query SQL - muito mais rápido
+    this_month_transactions = db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id,
-        models.Transaction.transaction_date >= this_month_start.date()
-    ).all() if abs(t.amount_cents) != 1]
+        models.Transaction.transaction_date >= this_month_start.date(),
+        func.abs(models.Transaction.amount_cents) != 1
+    ).all()
     
-    last_month_transactions = [t for t in db.query(models.Transaction).filter(
+    last_month_transactions = db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace.id,
         models.Transaction.transaction_date >= last_month_start.date(),
-        models.Transaction.transaction_date < this_month_start.date()
-    ).all() if abs(t.amount_cents) != 1]
+        models.Transaction.transaction_date < this_month_start.date(),
+        func.abs(models.Transaction.amount_cents) != 1
+    ).all()
     
     this_income, this_expenses, this_vault, this_expenses_by_cat = calculate_totals(this_month_transactions)
     last_income, last_expenses, last_vault, last_expenses_by_cat = calculate_totals(last_month_transactions)
@@ -213,8 +216,99 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
             icon='ghost'
         ))
 
+    # 6. Análise de Tendências Mensais
+    income_trend = 'stable'
+    expense_trend = 'stable'
+    if last_income > 0:
+        income_change = ((this_income - last_income) / last_income) * 100
+        if income_change > 10:
+            income_trend = 'up'
+            health_score += 5
+        elif income_change < -10:
+            income_trend = 'down'
+            health_score -= 10
+    
+    if last_expenses > 0:
+        expense_change = ((this_expenses - last_expenses) / last_expenses) * 100
+        if expense_change < -10:
+            expense_trend = 'down'
+            health_score += 10
+        elif expense_change > 20:
+            expense_trend = 'up'
+            health_score -= 15
+    
+    # 7. Consistência de Registos
+    days_with_transactions = len(set(t.transaction_date for t in this_month_transactions))
+    days_in_month = now.day
+    consistency_rate = (days_with_transactions / days_in_month) * 100 if days_in_month > 0 else 0
+    
+    if consistency_rate >= 80:
+        health_score += 10
+        if len(insights) < 3:
+            insights.append(schemas.InsightItem(
+                type='success',
+                title='📊 DISCIPLINA EXEMPLAR',
+                message=f"Registas transações em {consistency_rate:.0f}% dos dias. Esta consistência é o segredo do sucesso.",
+                icon='activity',
+                value=consistency_rate,
+                trend='up'
+            ))
+    elif consistency_rate < 40:
+        health_score -= 10
+    
+    # 8. Análise de Diversificação de Gastos
+    if len(expenses_by_cat) > 0:
+        top_category_share = max(expenses_by_cat.values()) / this_expenses * 100 if this_expenses > 0 else 0
+        if top_category_share > 50:
+            health_score -= 10
+            if len(insights) < 3:
+                top_cat = max(expenses_by_cat.items(), key=lambda x: x[1])[0]
+                insights.append(schemas.InsightItem(
+                    type='warning',
+                    title='🎯 CONCENTRAÇÃO ALTA',
+                    message=f"{top_cat} representa {top_category_share:.0f}% dos teus gastos. Considera diversificar.",
+                    icon='target',
+                    value=top_category_share,
+                    trend='down'
+                ))
+    
+    # 9. Eficiência de Poupança (Vault vs Expenses)
+    if this_expenses > 0 and this_vault > 0:
+        vault_efficiency = (this_vault / this_expenses) * 100
+        if vault_efficiency >= 30:
+            health_score += 15
+        elif vault_efficiency >= 15:
+            health_score += 5
+    
+    # 10. Previsão de Runway (Quanto tempo até ficar sem dinheiro)
+    monthly_burn = this_expenses
+    if monthly_burn > 0 and this_income > 0:
+        net_monthly = this_income - this_expenses
+        if net_monthly < 0:
+            # Calcular quanto tempo até ficar sem dinheiro (assumindo saldo atual)
+            # Esta é uma estimativa simplificada
+            if len(insights) < 3:
+                insights.append(schemas.InsightItem(
+                    type='danger',
+                    title='⏳ RUNWAY LIMITADO',
+                    message=f"Com este ritmo de gastos, o teu capital está a diminuir rapidamente.",
+                    icon='alert-circle',
+                    trend='down'
+                ))
+    
     # Ajuste final do score e fallbacks
     health_score = max(0, min(100, health_score))
+    
+    # Adicionar valores e tendências aos insights existentes
+    for insight in insights:
+        if insight.type == 'success' and 'poupar' in insight.message.lower():
+            saving_rate_val = ((this_income - this_expenses) / this_income * 100) if this_income > 0 else 0
+            insight.value = saving_rate_val
+            insight.trend = 'up' if saving_rate_val >= 25 else 'stable'
+        elif insight.type == 'danger' and 'défice' in insight.message.lower():
+            saving_rate_val = ((this_income - this_expenses) / this_income * 100) if this_income > 0 else 0
+            insight.value = abs(saving_rate_val)
+            insight.trend = 'down'
     
     fallbacks = [
         schemas.InsightItem(type='info', title='💎 SABEDORIA ZEN', message='O dinheiro é um bom servo, mas um mestre perigoso. Mantém a clareza.', icon='lightbulb'),
@@ -226,6 +320,23 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
         if len(insights) >= 3:
             break
         insights.append(fb)
+    
+    # Calcular métricas adicionais
+    metrics = {
+        'saving_rate': ((this_income - this_expenses) / this_income * 100) if this_income > 0 else 0,
+        'investment_ratio': (this_vault / this_income * 100) if this_income > 0 else 0,
+        'consistency_rate': consistency_rate,
+        'income_change': ((this_income - last_income) / last_income * 100) if last_income > 0 else 0,
+        'expense_change': ((this_expenses - last_expenses) / last_expenses * 100) if last_expenses > 0 else 0,
+        'total_transactions': len(this_month_transactions),
+        'days_active': days_with_transactions
+    }
+    
+    trends = {
+        'income': income_trend,
+        'expenses': expense_trend,
+        'saving_rate': 'up' if metrics['saving_rate'] > 0 else 'down' if metrics['saving_rate'] < 0 else 'stable'
+    }
         
     summary = 'O teu ecossistema financeiro está em constante evolução.'
     if health_score < 40:
@@ -242,7 +353,9 @@ async def get_zen_insights(db: Session = Depends(get_db), current_user: models.U
     return schemas.ZenInsightsResponse(
         insights=insights[:3],
         summary=summary,
-        health_score=health_score
+        health_score=health_score,
+        metrics=metrics,
+        trends=trends
     )
 
 @router.get('/composite', response_model=schemas.AnalyticsCompositeResponse)
@@ -255,10 +368,11 @@ async def get_analytics_composite(db: Session = Depends(get_db), current_user: m
     
     zen_insights = await get_zen_insights(db, current_user)
     
-    # Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
-    transactions = [t for t in db.query(models.Transaction).filter(
-        models.Transaction.workspace_id == workspace.id
-    ).order_by(models.Transaction.transaction_date.desc()).all() if abs(t.amount_cents) != 1]
+    # Filtrar transações de seed (1 cêntimo) diretamente na query SQL - muito mais rápido
+    transactions = db.query(models.Transaction).filter(
+        models.Transaction.workspace_id == workspace.id,
+        func.abs(models.Transaction.amount_cents) != 1
+    ).order_by(models.Transaction.transaction_date.desc()).all()
     
     categories = db.query(models.Category).filter(
         models.Category.workspace_id == workspace.id

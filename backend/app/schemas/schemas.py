@@ -122,11 +122,15 @@ class InsightItem(BaseModel):
     title: str
     message: str
     icon: str
+    value: Optional[float] = None
+    trend: Optional[str] = None  # 'up', 'down', 'stable'
 
 class ZenInsightsResponse(BaseModel):
     insights: List[InsightItem]
     summary: str
     health_score: int
+    metrics: Optional[dict] = None  # Métricas adicionais
+    trends: Optional[dict] = None  # Tendências mensais
 
 class RecurringTransactionBase(BaseModel):
     description: str

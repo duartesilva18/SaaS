@@ -120,6 +120,50 @@ export default function LoginPage() {
         storage.setItem('refresh_token', response.data.refresh_token);
       }
       await refreshUser();
+      
+      // Prefetch dos dados principais em background para otimizar carregamento
+      const prefetchData = async () => {
+        try {
+          const [transRes, catRes, insightsRes, invoicesRes] = await Promise.all([
+            api.get('/transactions/?limit=100'),
+            api.get('/categories/'),
+            api.get('/insights/'),
+            api.get('/stripe/invoices').catch(() => null) // Opcional, não bloquear se falhar
+          ]);
+          
+          // Guardar no cache imediatamente para uso no dashboard
+          const userRes = await api.get('/auth/me').catch(() => null);
+          if (userRes?.data) {
+            const user = userRes.data;
+            // Cache do dashboard
+            localStorage.setItem('dashboard_cache', JSON.stringify({
+              data: {
+                user,
+                transactions: transRes.data,
+                categories: catRes.data,
+                invoices: invoicesRes?.data || []
+              },
+              timestamp: Date.now()
+            }));
+            
+            // Cache dos insights
+            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
+            if (hasActiveSub) {
+              localStorage.setItem('zen_insights_cache', JSON.stringify({
+                data: insightsRes.data,
+                timestamp: Date.now()
+              }));
+            }
+          }
+        } catch (err) {
+          // Silenciar erros de prefetch - não é crítico
+          console.log('Prefetch opcional falhou (não crítico)');
+        }
+      };
+      
+      // Iniciar prefetch mas não esperar - redirecionar imediatamente
+      prefetchData();
+      
       router.push('/dashboard');
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -145,6 +189,50 @@ export default function LoginPage() {
         storage.setItem('refresh_token', response.data.refresh_token);
       }
       await refreshUser();
+      
+      // Prefetch dos dados principais em background para otimizar carregamento
+      const prefetchData = async () => {
+        try {
+          const [transRes, catRes, insightsRes, invoicesRes] = await Promise.all([
+            api.get('/transactions/?limit=100'),
+            api.get('/categories/'),
+            api.get('/insights/'),
+            api.get('/stripe/invoices').catch(() => null) // Opcional, não bloquear se falhar
+          ]);
+          
+          // Guardar no cache imediatamente para uso no dashboard
+          const userRes = await api.get('/auth/me').catch(() => null);
+          if (userRes?.data) {
+            const user = userRes.data;
+            // Cache do dashboard
+            localStorage.setItem('dashboard_cache', JSON.stringify({
+              data: {
+                user,
+                transactions: transRes.data,
+                categories: catRes.data,
+                invoices: invoicesRes?.data || []
+              },
+              timestamp: Date.now()
+            }));
+            
+            // Cache dos insights
+            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
+            if (hasActiveSub) {
+              localStorage.setItem('zen_insights_cache', JSON.stringify({
+                data: insightsRes.data,
+                timestamp: Date.now()
+              }));
+            }
+          }
+        } catch (err) {
+          // Silenciar erros de prefetch - não é crítico
+          console.log('Prefetch opcional falhou (não crítico)');
+        }
+      };
+      
+      // Iniciar prefetch mas não esperar - redirecionar imediatamente
+      prefetchData();
+      
       router.push('/dashboard');
     } catch (err: any) {
       const detail = err.response?.data?.detail;
