@@ -20,17 +20,18 @@ export const metadata: Metadata = {
   title: "FinanZen - Gestão Financeira Pessoal",
   description: "O seu ecossistema de gestão financeira inteligente",
   manifest: "/manifest.json",
-  themeColor: "#3b82f6",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "FinanZen",
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 5,
-  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#3b82f6",
 };
 
 export default function RootLayout({

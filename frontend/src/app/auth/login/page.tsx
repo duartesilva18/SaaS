@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
-import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, ArrowRight, Mail, Lock, AlertCircle, ChevronLeft, CheckCircle2, Trophy, Eye, EyeOff, Check, ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import { useTranslation } from '@/lib/LanguageContext';

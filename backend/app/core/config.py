@@ -5,19 +5,34 @@ from pydantic_settings import BaseSettings
 load_dotenv()
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = 'SaaS Gestão Financeira'
+    PROJECT_NAME: str = 'FinSaaS - Gestão Financeira'
     DATABASE_URL: str = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/saas_db')
     
-    # SECRET_KEY deve ser fornecido via env, sem valor padrão em produção
-    _secret_key = os.getenv('SECRET_KEY')
-    if not _secret_key or _secret_key == 'secret_key_super_secreta_para_desenvolvimento':
-        if os.getenv('ENVIRONMENT') == 'production':
-            raise ValueError("SECRET_KEY deve ser configurado em produção!")
+    # SECRET_KEY - OBRIGATÓRIO em produção via env
+    _secret_key = os.getenv('SECRET_KEY', '').strip()
+    _environment = os.getenv('ENVIRONMENT', 'development').lower()
+    
+    if not _secret_key:
+        if _environment == 'production':
+            raise ValueError(
+                "❌ ERRO CRÍTICO: SECRET_KEY não configurado!\n"
+                "Para produção, defina SECRET_KEY no ficheiro .env\n"
+                "Gere uma chave segura com: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            )
+        # Apenas em desenvolvimento: usar chave padrão
         _secret_key = 'secret_key_super_secreta_para_desenvolvimento'
+        import warnings
+        warnings.warn("⚠️  Usando SECRET_KEY padrão de desenvolvimento. NÃO USE EM PRODUÇÃO!")
+    elif _secret_key == 'secret_key_super_secreta_para_desenvolvimento' and _environment == 'production':
+        raise ValueError(
+            "❌ ERRO: Não é permitido usar a SECRET_KEY de desenvolvimento em produção!\n"
+            "Defina uma SECRET_KEY segura no ficheiro .env"
+        )
+    
     SECRET_KEY: str = _secret_key
     
     ALGORITHM: str = 'HS256'
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120  # 2 horas
     
     STRIPE_API_KEY: str = os.getenv('STRIPE_API_KEY', '')
     STRIPE_WEBHOOK_SECRET: str = os.getenv('STRIPE_WEBHOOK_SECRET', '')
