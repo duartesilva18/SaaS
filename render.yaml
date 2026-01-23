@@ -1,6 +1,6 @@
 services:
   # Base de Dados PostgreSQL
-  - type: pspg
+  - type: pg
     name: finanzen-database
     plan: starter
     databaseName: finanzen_db
