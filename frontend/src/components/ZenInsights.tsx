@@ -28,7 +28,7 @@ const InsightIcon = ({ name, size = 20 }: { name: string, size?: number }) => {
 };
 
 export default function ZenInsights() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
@@ -37,7 +37,7 @@ export default function ZenInsights() {
     const fetchInsights = async () => {
       try {
         // Verificar cache primeiro (5 minutos)
-        const cacheKey = 'zen_insights_cache';
+        const cacheKey = `zen_insights_cache_${language}`;
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
           const { data: cachedData, timestamp } = JSON.parse(cached);
@@ -57,7 +57,8 @@ export default function ZenInsights() {
         // Inclui 'cancel_at_period_end' para manter acesso até ao fim do período
         const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
         if (!hasActiveSub) {
-          setData(DEMO_INSIGHTS);
+          const translatedDemo = t?.dashboard?.zenInsights?.demo;
+          setData(translatedDemo?.insights ? translatedDemo : DEMO_INSIGHTS);
         } else {
           const insightsData = insightsRes.data;
           setData(insightsData);
@@ -75,7 +76,8 @@ export default function ZenInsights() {
       }
     };
     fetchInsights();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
 
   if (loading) {
     return (
@@ -120,7 +122,7 @@ export default function ZenInsights() {
               transition={{ delay: 0.4 }}
               className="text-2xl md:text-3xl font-black text-white tracking-tight leading-tight"
             >
-              "{data.health_score > 80 ? 'EXCELENTE' : 'ATENÇÃO'}: {data.summary}"
+              "{data.summary}"
             </motion.h2>
           </div>
         </div>
@@ -156,9 +158,11 @@ export default function ZenInsights() {
             </div>
           </div>
           <div className="text-left">
-            <p className="text-[8px] font-black uppercase tracking-widest text-white/50 mb-1">Paz Financeira</p>
+            <p className="text-[8px] font-black uppercase tracking-widest text-white/50 mb-1">
+              {t.dashboard.zenInsights.financialPeace}
+            </p>
             <p className="text-sm font-black uppercase tracking-widest text-white">
-              {data.health_score > 80 ? 'Harmonia Plena' : 'Necessita Foco'}
+              {data.health_score > 80 ? t.dashboard.zenInsights.fullHarmony : t.dashboard.zenInsights.needsFocus}
             </p>
           </div>
         </motion.div>
@@ -230,8 +234,11 @@ export default function ZenInsights() {
                 insight.type === 'danger' ? 'text-red-400' : 
                 insight.type === 'warning' ? 'text-amber-400' : 'text-emerald-400'
               }`}>
-                {insight.type === 'danger' ? 'Ação Requerida' : 
-                 insight.type === 'warning' ? 'Atenção' : 'Zen Analytics'}
+                {insight.type === 'danger'
+                  ? t.dashboard.zenInsights.actionRequired
+                  : insight.type === 'warning'
+                    ? t.dashboard.zenInsights.attention
+                    : t.dashboard.zenInsights.zenAnalytics}
               </span>
               <motion.div
                 whileHover={{ x: 4 }}
@@ -256,7 +263,7 @@ export default function ZenInsights() {
           whileTap={{ scale: 0.95 }}
           className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-500 hover:text-blue-400 transition-colors flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-500/5 hover:bg-blue-500/10 border border-blue-500/20 cursor-pointer"
         >
-          Ver Análise Detalhada 
+          {t.dashboard.zenInsights.viewDetailedAnalysis}
           <motion.div
             animate={{ x: [0, 4, 0] }}
             transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}

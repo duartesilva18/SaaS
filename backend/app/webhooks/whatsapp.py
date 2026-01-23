@@ -81,7 +81,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             
             if not user:
                 # Tenta enviar uma mensagem de erro se tivermos token
-                send_whatsapp_confirmation(from_phone, "⚠️ Olá! Não encontrei o teu número no sistema FinanZen. Regista o teu número nas definições do site para usares o Bot. 🧘‍♂️")
+                send_whatsapp_confirmation(from_phone, "⚠️ Olá! Não encontrei o teu número no sistema Finly. Regista o teu número nas definições do site para usares o Bot. 🧘‍♂️")
                 return {'status': 'user not found'}
 
         print(f"👤 Utilizador Identificado: {user.email}")

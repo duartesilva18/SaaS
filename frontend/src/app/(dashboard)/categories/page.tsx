@@ -105,7 +105,7 @@ export default function CategoriesPage() {
       setCategories(catsRes.data);
       setStats(statsRes.data);
     } catch (err) {
-      console.error("Erro ao carregar categorias:", err);
+      console.error(t.dashboard.categories.error.load, err);
     } finally {
       setLoading(false);
     }
@@ -144,7 +144,7 @@ export default function CategoriesPage() {
       setFormData({ name: '', nature: 'expense', monthly_limit: '', color_hex: COLORS[0], icon: 'Tag' });
       fetchData();
     } catch (err: any) {
-      setToastMsg(err.response?.data?.detail || "Erro ao guardar categoria.");
+      setToastMsg(err.response?.data?.detail || t.dashboard.categories.error.save);
       setToastType('error');
       setShowToast(true);
     }
@@ -162,7 +162,7 @@ export default function CategoriesPage() {
       setCategoryToDelete(null);
       fetchData();
     } catch (err: any) {
-      setToastMsg(err.response?.data?.detail || "Erro ao eliminar.");
+      setToastMsg(err.response?.data?.detail || t.dashboard.categories.error.delete);
       setToastType('error');
       setShowToast(true);
     } finally {
@@ -189,7 +189,7 @@ export default function CategoriesPage() {
       setIsSelectionMode(false);
       fetchData();
     } catch (err: any) {
-      setToastMsg(err.response?.data?.detail || "Erro ao eliminar em massa.");
+      setToastMsg(err.response?.data?.detail || t.dashboard.categories.error.bulkDelete);
       setToastType('error');
       setShowToast(true);
     } finally {
@@ -239,7 +239,7 @@ export default function CategoriesPage() {
           transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
           className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full mb-4"
         />
-        <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">A harmonizar categorias...</p>
+        <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">{t.dashboard.categories.harmonizing}</p>
       </div>
     );
   }
@@ -295,8 +295,8 @@ export default function CategoriesPage() {
               <Landmark size={24} />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">Cofre Ativo</h3>
-              <p className="text-xs text-blue-200/70 font-medium italic">Tens categorias configuradas para alimentar o teu Cofre de Reservas. Todos os movimentos nestas categorias serão contabilizados como poupança/investimento.</p>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">{t.dashboard.categories.activeVault}</h3>
+              <p className="text-xs text-blue-200/70 font-medium italic">{t.dashboard.categories.activeVaultText}</p>
             </div>
           </motion.div>
         )}
@@ -456,7 +456,7 @@ export default function CategoriesPage() {
                   )}
                   {isDanger && (
                     <div className="absolute -top-3 right-6 bg-red-600 text-white text-[8px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full shadow-lg shadow-red-600/40 animate-bounce">
-                      {isExceeded ? 'Perigo: Limite Excedido' : 'Atenção: Limite Atingido'}
+                      {isExceeded ? t.dashboard.categories.dangerLimitExceeded : t.dashboard.categories.warningLimitReached}
                     </div>
                   )}
                   <div className="flex items-start justify-between mb-6">
@@ -562,9 +562,9 @@ export default function CategoriesPage() {
           <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] p-8 text-white relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 blur-2xl rounded-full translate-x-10 -translate-y-10" />
             <Sparkles className="mb-6 opacity-80" size={32} />
-            <h3 className="text-2xl font-black tracking-tighter mb-4 leading-none uppercase">Dica do Mestre</h3>
+            <h3 className="text-2xl font-black tracking-tighter mb-4 leading-none uppercase">{t.dashboard.categories.masterTip}</h3>
             <p className="text-blue-100 font-medium italic text-sm leading-relaxed">
-              "Categorias são as gavetas da tua mente financeira. Quanto mais organizadas estiverem, mais clareza terás para tomar decisões zen."
+              "{t.dashboard.categories.masterTipText}"
             </p>
           </div>
 
@@ -677,12 +677,12 @@ export default function CategoriesPage() {
 
                     <div className="space-y-4">
                       <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 ml-4 block">
-                        Natureza da Categoria
+                        {t.dashboard.categories.nature}
                       </label>
                       <div className="grid grid-cols-2 gap-4">
                         {[
-                          { id: 'expense', label: 'Despesa', icon: TrendingUp, color: 'text-red-400' },
-                          { id: 'income', label: 'Receita', icon: Landmark, color: 'text-emerald-400' },
+                          { id: 'expense', label: t.dashboard.categories.expense, icon: TrendingUp, color: 'text-red-400' },
+                          { id: 'income', label: t.dashboard.categories.income, icon: Landmark, color: 'text-emerald-400' },
                         ].map((nature) => (
                           <button
                             key={nature.id}
@@ -764,7 +764,7 @@ export default function CategoriesPage() {
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
                     <span className="relative z-10 flex items-center justify-center gap-3">
-                      {editingCategory ? 'Guardar Alterações' : 'Criar Nova Categoria'}
+                      {editingCategory ? t.dashboard.categories.saveChanges : t.dashboard.categories.createNew}
                       <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
                     </span>
                   </button>
@@ -799,10 +799,10 @@ export default function CategoriesPage() {
                 <Trash2 size={40} className="animate-pulse" />
               </div>
 
-              <h3 className="text-2xl font-black text-white tracking-tighter uppercase mb-4">Eliminar Categoria?</h3>
+              <h3 className="text-2xl font-black text-white tracking-tighter uppercase mb-4">{t.dashboard.categories.deleteConfirm}</h3>
               <p className="text-slate-400 font-medium italic mb-8 leading-relaxed">
-                Estás prestes a eliminar a categoria <span className="text-white font-black px-2 py-0.5 bg-white/5 rounded-lg">"{categoryToDelete.name}"</span>.<br />
-                <span className="text-red-400/80 text-xs">Atenção: Transações associadas podem ficar sem categoria.</span>
+                {t.dashboard.categories.deleteConfirmText} <span className="text-white font-black px-2 py-0.5 bg-white/5 rounded-lg">"{categoryToDelete.name}"</span>.<br />
+                <span className="text-red-400/80 text-xs">{t.dashboard.categories.deleteWarning}</span>
               </p>
 
               <div className="flex flex-col gap-3">
@@ -850,10 +850,10 @@ export default function CategoriesPage() {
                 <Trash2 size={40} className="animate-pulse" />
               </div>
 
-              <h3 className="text-2xl font-black text-white tracking-tighter uppercase mb-4">Eliminar Várias?</h3>
+              <h3 className="text-2xl font-black text-white tracking-tighter uppercase mb-4">{t.dashboard.categories.deleteMultiple}</h3>
               <p className="text-slate-400 font-medium italic mb-8 leading-relaxed">
-                Estás prestes a eliminar <span className="text-white font-black px-2 py-0.5 bg-white/5 rounded-lg">{selectedIds.length}</span> categorias selecionadas.<br />
-                <span className="text-red-400/80 text-xs">Atenção: Transações associadas podem ficar sem categoria.</span>
+                {t.dashboard.categories.deleteMultipleText} <span className="text-white font-black px-2 py-0.5 bg-white/5 rounded-lg">{selectedIds.length}</span> {t.dashboard.categories.deleteMultipleCategories}<br />
+                <span className="text-red-400/80 text-xs">{t.dashboard.categories.deleteWarning}</span>
               </p>
 
               <div className="flex flex-col gap-3">

@@ -9,6 +9,11 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Enviar idioma atual para o backend (para respostas localizadas)
+  const language = localStorage.getItem('language');
+  if (language) {
+    config.headers['Accept-Language'] = language;
+  }
   return config;
 });
 

@@ -3,49 +3,38 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, TrendingUp, Target, Zap, ShieldCheck, Rocket } from 'lucide-react';
+import { useTranslation } from '@/lib/LanguageContext';
 
-const motivationalQuotes = [
-  {
-    icon: Sparkles,
-    title: "A construir o teu futuro",
-    quote: "Cada transação que registas é um passo em direção à liberdade financeira.",
-    color: "from-blue-500 to-indigo-500"
-  },
-  {
-    icon: TrendingUp,
-    title: "A dominar o teu dinheiro",
-    quote: "O controlo financeiro começa com a consciência de cada cêntimo.",
-    color: "from-emerald-500 to-teal-500"
-  },
-  {
-    icon: Target,
-    title: "A alcançar os teus objetivos",
-    quote: "Grandes sonhos são construídos com pequenas decisões diárias.",
-    color: "from-purple-500 to-pink-500"
-  },
-  {
-    icon: Zap,
-    title: "A otimizar o teu fluxo",
-    quote: "A velocidade da tua transformação financeira está nas tuas mãos.",
-    color: "from-amber-500 to-orange-500"
-  },
-  {
-    icon: ShieldCheck,
-    title: "A proteger o teu património",
-    quote: "A segurança financeira é construída com disciplina e visão clara.",
-    color: "from-cyan-500 to-blue-500"
-  },
-  {
-    icon: Rocket,
-    title: "A acelerar o teu crescimento",
-    quote: "O teu futuro financeiro está a ser moldado neste exato momento.",
-    color: "from-rose-500 to-red-500"
-  }
-];
+const iconMap: Record<string, typeof Sparkles> = {
+  Sparkles,
+  TrendingUp,
+  Target,
+  Zap,
+  ShieldCheck,
+  Rocket
+};
 
 export default function LoadingScreen() {
+  const { t } = useTranslation();
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
+  
+  const motivationalQuotes = t.dashboard.loading.motivationalQuotes.map((q: any, idx: number) => {
+    const icons = [Sparkles, TrendingUp, Target, Zap, ShieldCheck, Rocket];
+    const colors = [
+      "from-blue-500 to-indigo-500",
+      "from-emerald-500 to-teal-500",
+      "from-purple-500 to-pink-500",
+      "from-amber-500 to-orange-500",
+      "from-cyan-500 to-blue-500",
+      "from-rose-500 to-red-500"
+    ];
+    return {
+      ...q,
+      icon: icons[idx],
+      color: colors[idx]
+    };
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -158,7 +147,7 @@ export default function LoadingScreen() {
           transition={{ delay: 0.6 }}
           className="mt-8 text-xs font-black uppercase tracking-[0.3em] text-slate-600"
         >
-          A carregar o teu ecossistema...
+          {t.dashboard.loading.loadingEcosystem}
         </motion.p>
       </div>
 

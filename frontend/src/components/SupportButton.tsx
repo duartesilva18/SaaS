@@ -8,7 +8,7 @@ import api from '@/lib/api';
 
 export default function SupportButton() {
   const { t } = useTranslation();
-  const [whatsappNumber, setWhatsappNumber] = useState("351925989577");
+  const [telegramNumber, setTelegramNumber] = useState("351925989577");
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -17,8 +17,8 @@ export default function SupportButton() {
         if (res.data && res.data.support_phone) {
           // Remove tudo o que não seja dígito (remove +, espaços, traços, etc)
           const cleanNumber = res.data.support_phone.replace(/\D/g, '');
-          console.log('Suporte WhatsApp carregado:', cleanNumber);
-          setWhatsappNumber(cleanNumber);
+          console.log('Suporte Telegram carregado:', cleanNumber);
+          setTelegramNumber(cleanNumber);
         }
       } catch (err) {
         console.error('Erro ao carregar número de suporte:', err);
@@ -29,7 +29,7 @@ export default function SupportButton() {
 
   const message = encodeURIComponent(t.dashboard.support.message);
   // Garante que o número final no link está perfeitamente limpo
-  const finalNumber = whatsappNumber.replace(/\D/g, '');
+  const finalNumber = telegramNumber.replace(/\D/g, '');
   const whatsappUrl = `https://wa.me/${finalNumber}?text=${message}`;
 
   return (

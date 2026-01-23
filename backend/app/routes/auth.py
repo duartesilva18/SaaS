@@ -16,6 +16,7 @@ from ..models import database as models
 from ..schemas import schemas
 from ..core.limiter import limiter
 from ..core.audit import log_action
+from ..core.email_translations import get_email_translation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/auth', tags=['auth'])
@@ -92,6 +93,13 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
     db.commit()
     
     verify_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+    # Get user language preference from user_in or default to 'pt'
+    user_lang = getattr(user_in, 'language', 'pt') or 'pt'
+    # Validate language (only 'pt' or 'en' supported)
+    if user_lang not in ['pt', 'en']:
+        user_lang = 'pt'
+    t = get_email_translation(user_lang, 'verify_email')
+    
     html = f'''
     <!DOCTYPE html>
     <html>
@@ -113,16 +121,16 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
     <body>
         <div class="container">
             <div class="header">
-                <div class="logo">Finan<span>Zen</span></div>
+                <div class="logo">Finly</div>
             </div>
             <div class="content">
-                <h2>O seu futuro começa agora.</h2>
-                <p>Bem-vindo à elite financeira. Falta apenas validar o seu acesso para desbloquear o controlo total sobre o seu património.</p>
-                <a href="{verify_url}" class="btn">Ativar Conta Premium</a>
-                <p class="security-notice">Este link é pessoal, intransmissível e expira em 24 horas.</p>
+                <h2>{t['title']}</h2>
+                <p>{t['welcome']}</p>
+                <a href="{verify_url}" class="btn">{t['button']}</a>
+                <p class="security-notice">{t['security_notice']}</p>
             </div>
             <div class="footer">
-                FinanZen Portugal © 2026 <br> High-End Financial Management
+                {t['footer']}
             </div>
         </div>
     </body>
@@ -130,7 +138,7 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
     '''
     
     message = MessageSchema(
-        subject='FinanZen - Confirme o seu registo',
+        subject=t['subject'],
         recipients=[user_in.email],
         body=html,
         subtype=MessageType.html
@@ -272,10 +280,15 @@ async def verify_email(request: Request, token: str, db: Session = Depends(get_d
     user = db.query(models.User).filter(models.User.email == verification.email).first()
     
     if not user:
+        # Get language from verification if stored, or default to 'pt'
+        user_language = getattr(verification, 'language', 'pt') or 'pt'
+        if user_language not in ['pt', 'en']:
+            user_language = 'pt'
         user = models.User(
             email=verification.email,
             password_hash=verification.password_hash,
-            is_email_verified=True
+            is_email_verified=True,
+            language=user_language
         )
         db.add(user)
         db.commit()
@@ -346,6 +359,34 @@ async def update_profile(request: Request, onboarding_data: schemas.UserUpdateOn
     logger.info(f'Utilizador atualizou perfil: {current_user.email}')
     return current_user
 
+@router.patch('/language', response_model=schemas.UserResponse)
+async def update_language(request: Request, language_data: schemas.UserUpdateLanguage, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Validate language (only 'pt' or 'en' supported)
+    if language_data.language not in ['pt', 'en']:
+        raise HTTPException(status_code=400, detail='Idioma não suportado. Use "pt" ou "en".')
+    
+    current_user.language = language_data.language
+    db.commit()
+    db.refresh(current_user)
+    
+    await log_action(db, action='language_update', user_id=current_user.id, details=f'Idioma atualizado para {language_data.language}: {current_user.email}', request=request)
+    logger.info(f'Utilizador atualizou idioma para {language_data.language}: {current_user.email}')
+    return current_user
+
+@router.post('/accept-terms', response_model=schemas.UserResponse)
+async def accept_terms(request: Request, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from datetime import datetime, timezone
+    
+    current_user.terms_accepted = True
+    current_user.terms_accepted_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    await log_action(db, action='terms_accepted', user_id=current_user.id, details=f'Termos aceites: {current_user.email}', request=request)
+    logger.info(f'Utilizador aceitou termos: {current_user.email}')
+    return current_user
+
 @router.delete('/account')
 async def delete_user_account(request: Request, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
@@ -414,6 +455,14 @@ async def request_password_reset(request: Request, data: schemas.PasswordResetRe
     
     await log_action(db, action='password_reset_request', user_id=user.id, details=f'Pedido de reset: {data.email}', request=request)
     
+    # Get user language preference from user model (already in database)
+    # If language field doesn't exist yet (before migration), default to 'pt'
+    user_lang = getattr(user, 'language', None) or 'pt'
+    # Validate language (only 'pt' or 'en' supported)
+    if user_lang not in ['pt', 'en']:
+        user_lang = 'pt'
+    t = get_email_translation(user_lang, 'password_reset')
+    
     html = f'''
     <!DOCTYPE html>
     <html>
@@ -436,19 +485,19 @@ async def request_password_reset(request: Request, data: schemas.PasswordResetRe
     <body>
         <div class="container">
             <div class="header">
-                <div class="logo">Finan<span>Zen</span></div>
+                <div class="logo">Finly</div>
             </div>
             <div class="content">
-                <h2>Recuperação de Acesso</h2>
-                <p>Recebemos um pedido para redefinir a sua password. Utilize o código de segurança abaixo para prosseguir com a redefinição:</p>
+                <h2>{t['title']}</h2>
+                <p>{t['message']}</p>
                 <div class="code-box">
-                    <p style="margin-bottom: 15px; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #475569; font-weight: 800;">Código de Segurança</p>
+                    <p style="margin-bottom: 15px; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #475569; font-weight: 800;">{t['code_label']}</p>
                     <div class="code">{code}</div>
                 </div>
-                <p class="security-notice">Este código é válido por apenas 15 minutos e destina-se apenas ao destinatário deste email.</p>
+                <p class="security-notice">{t['security_notice']}</p>
             </div>
             <div class="footer">
-                FinanZen Portugal © 2026 <br> Segurança Bancária Certificada
+                {t['footer']}
             </div>
         </div>
     </body>
@@ -465,11 +514,11 @@ async def request_password_reset(request: Request, data: schemas.PasswordResetRe
         MAIL_SSL_TLS=False,
         USE_CREDENTIALS=True,
         VALIDATE_CERTS=True,
-        MAIL_FROM_NAME='FinanZen Portugal'
+        MAIL_FROM_NAME='Finly Portugal'
     )
     
     message = MessageSchema(
-        subject='FinanZen - Código de Recuperação',
+        subject=t['subject'],
         recipients=[data.email],
         body=html,
         subtype=MessageType.html
@@ -554,10 +603,15 @@ async def social_login(request: Request, data: schemas.SocialLoginRequest, db: S
     user = db.query(models.User).filter(models.User.email == email).first()
     
     if not user:
+        # Get language from request data or default to 'pt'
+        user_language = getattr(data, 'language', 'pt') or 'pt'
+        if user_language not in ['pt', 'en']:
+            user_language = 'pt'
         user = models.User(
             email=email,
             google_id=social_id if data.provider == 'google' else None,
             is_email_verified=True,
+            language=user_language,
             login_count=1,
             last_login=datetime.now(timezone.utc)
         )

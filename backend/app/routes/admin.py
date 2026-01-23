@@ -11,6 +11,7 @@ from ..core.audit import log_action
 import stripe
 from ..core.config import settings
 from fastapi_mail import FastMail, MessageSchema, MessageType
+from ..core.email_translations import get_email_translation
 import logging
 import requests
 
@@ -227,6 +228,14 @@ async def send_marketing_broadcast(
     for user in users:
         try:
             logger.info(f"A preparar envio de broadcast para: {user.email}")
+            # Get user language preference from user model or default to 'pt'
+            user_lang = getattr(user, 'language', 'pt') or 'pt'
+            # Validate language (only 'pt' or 'en' supported)
+            if user_lang not in ['pt', 'en']:
+                user_lang = 'pt'
+            t = get_email_translation(user_lang)
+            marketing_footer = t.get('marketing_footer', 'Recebeu este email porque aceitou as comunicações de marketing do Finly.')
+            
             html = f"""
             <!DOCTYPE html>
             <html>
@@ -235,7 +244,7 @@ async def send_marketing_broadcast(
                     <h2 style="color: #ffffff; margin-top: 0;">{broadcast.subject}</h2>
                     <p style="line-height: 1.6; font-size: 16px;">{broadcast.message}</p>
                     <hr style="border: 0; border-top: 1px solid #1e293b; margin: 30px 0;">
-                    <p style="font-size: 12px; color: #475569;">Recebeu este email porque aceitou as comunicações de marketing do FinanZen.</p>
+                    <p style="font-size: 12px; color: #475569;">{marketing_footer}</p>
                 </div>
             </body>
             </html>
