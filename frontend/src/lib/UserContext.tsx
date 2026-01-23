@@ -16,6 +16,8 @@ interface User {
   is_onboarded: boolean;
   marketing_opt_in: boolean;
   subscription_status?: string;
+  terms_accepted?: boolean;
+  terms_accepted_at?: string;
   created_at: string;
 }
 
@@ -34,8 +36,21 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
+    // Preservar consentimento de cookies antes de limpar
+    const cookieConsent = localStorage.getItem('cookie-consent');
+    const cookieConsentDate = localStorage.getItem('cookie-consent-date');
+    
     localStorage.clear();
     sessionStorage.clear();
+    
+    // Restaurar consentimento de cookies após limpar
+    if (cookieConsent) {
+      localStorage.setItem('cookie-consent', cookieConsent);
+      if (cookieConsentDate) {
+        localStorage.setItem('cookie-consent-date', cookieConsentDate);
+      }
+    }
+    
     // Limpar cookies comuns de auth se existirem
     document.cookie.split(";").forEach((c) => {
       document.cookie = c

@@ -290,7 +290,14 @@ export default function RegisterPage() {
               <div className="flex items-start gap-3 px-2 py-2">
                 <ShieldCheck size={18} className="text-emerald-500 shrink-0 mt-0.5 lg:size-[20px]" />
                 <p className="text-[9px] lg:text-[10px] text-slate-500 leading-relaxed uppercase font-black tracking-widest">
-                  {t.auth.register.terms}
+                  Ao criar conta, concorda com os nossos{' '}
+                  <Link href="/terms" className="text-blue-400 hover:text-blue-300 underline">
+                    Termos e Condições
+                  </Link>
+                  {' '}e{' '}
+                  <Link href="/privacy" className="text-blue-400 hover:text-blue-300 underline">
+                    Política de Privacidade
+                  </Link>.
                 </p>
               </div>
 

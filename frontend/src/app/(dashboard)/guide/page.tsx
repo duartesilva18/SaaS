@@ -15,8 +15,8 @@ export default function GuidePage() {
   const guide = t.dashboard.guide;
 
   const sectionRoutes = [
-    'https://t.me/FinanZenApp_bot', // Telegram bot
-    '/dashboard', // WhatsApp (mostra dashboard)
+    'https://t.me/FinlyApp_bot', // Telegram bot
+    '/dashboard', // Telegram (mostra dashboard)
     '/dashboard',
     '/recurring',
     '/analytics'
@@ -142,7 +142,7 @@ export default function GuidePage() {
 
             <div className="flex flex-wrap gap-4 pt-4">
               <a 
-                href="https://t.me/FinanZenApp_bot"
+                href="https://t.me/FinlyApp_bot"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-95 cursor-pointer flex items-center gap-2"
@@ -166,7 +166,7 @@ export default function GuidePage() {
                   <Send size={20} />
                 </div>
                 <div>
-                  <h4 className="text-white font-bold text-sm">FinanZen Bot</h4>
+                  <h4 className="text-white font-bold text-sm">Finly Bot</h4>
                   <p className="text-blue-400 text-[10px] font-medium tracking-wider uppercase">Online • Sempre pronto</p>
                 </div>
               </div>
@@ -300,7 +300,7 @@ export default function GuidePage() {
               Privacidade em <span className="text-blue-500 italic">Primeiro Lugar.</span>
             </h2>
             <p className="text-slate-400 text-lg font-medium leading-relaxed max-w-2xl">
-              O FinanZen é uma ferramenta de gestão, não de invasão. Nunca pedimos as tuas passwords bancárias. Encriptação de ponta a ponta em cada mensagem.
+              O Finly é uma ferramenta de gestão, não de invasão. Nunca pedimos as tuas passwords bancárias. Encriptação de ponta a ponta em cada mensagem.
             </p>
           </div>
 
@@ -323,7 +323,7 @@ export default function GuidePage() {
       {/* Final Footer */}
       <footer className="text-center pt-10 border-t border-white/5">
         <p className="text-slate-600 text-sm font-black uppercase tracking-[0.4em]">
-          FinanZen • Simplicidade é a maior sofisticação
+          Finly • Simplicidade é a maior sofisticação
         </p>
       </footer>
     </div>

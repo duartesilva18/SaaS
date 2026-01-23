@@ -21,6 +21,8 @@ class UserResponse(UserBase):
     is_onboarded: bool
     marketing_opt_in: bool
     subscription_status: Optional[str] = 'none'
+    terms_accepted: bool = False
+    terms_accepted_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:

@@ -145,7 +145,7 @@ export default function SettingsPage() {
       const dataStr = JSON.stringify(res.data, null, 2);
       const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
       
-      const exportFileDefaultName = `finanzen_export_${new Date().toISOString().split('T')[0]}.json`;
+      const exportFileDefaultName = `finly_export_${new Date().toISOString().split('T')[0]}.json`;
       
       const linkElement = document.createElement('a');
       linkElement.setAttribute('href', dataUri);
@@ -361,7 +361,7 @@ export default function SettingsPage() {
                       {t.dashboard.settings.preferences.marketing}
                     </p>
                     <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                      Email • SMS • WhatsApp
+                      Email • SMS • Telegram
                     </p>
                   </div>
                 </div>
@@ -402,7 +402,7 @@ export default function SettingsPage() {
             </p>
 
             <a 
-              href="https://t.me/FinanZenApp_bot" 
+              href="https://t.me/FinlyApp_bot" 
               target="_blank" 
               rel="noopener noreferrer"
               className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 cursor-pointer"
@@ -470,7 +470,7 @@ export default function SettingsPage() {
           <div className="p-8 bg-blue-600/5 border border-blue-500/10 rounded-[32px] text-center shadow-xl group hover:bg-blue-600/10 transition-colors">
             <BellRing className="text-blue-500/60 mx-auto mb-4 group-hover:scale-110 transition-transform" size={32} />
             <h4 className="text-white font-black tracking-tight mb-2 uppercase tracking-widest text-[10px] opacity-60">Precisas de ajuda?</h4>
-            <p className="text-slate-500 text-xs font-medium italic">O nosso suporte está disponível 24/7 via WhatsApp.</p>
+            <p className="text-slate-500 text-xs font-medium italic">O nosso suporte está disponível 24/7 via Telegram.</p>
           </div>
         </div>
       </div>

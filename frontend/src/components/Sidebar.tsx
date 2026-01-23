@@ -113,7 +113,7 @@ const menuSections = (t: any) => [
     items: [
       {
         name: "Bot Telegram",
-        href: 'https://t.me/FinanZenApp_bot',
+        href: 'https://t.me/FinlyApp_bot',
         icon: Send,
         isExternal: true
       },
@@ -340,7 +340,7 @@ export default function Sidebar({
         {(!isCollapsed || isMobileOpen) && (
           <div className="flex flex-col">
             <span className="text-xl font-black tracking-tighter text-white">
-              Finan<span className="text-blue-500 italic">Zen</span>
+              Finly
             </span>
             {isPro && (
               <span className="text-[8px] font-black uppercase tracking-[0.2em] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full w-fit">

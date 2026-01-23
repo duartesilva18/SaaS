@@ -697,7 +697,7 @@ def setup_bot_info():
     # Configurar descrição completa (about)
     try:
         full_desc = (
-            "✨ FinanZen Bot ✨\n\n"
+            "✨ Finly Bot ✨\n\n"
             "💎 Regista transações financeiras rapidamente através do Telegram.\n\n"
             "🎯 Funcionalidades:\n"
             "• Categorização automática com IA\n"
@@ -717,7 +717,7 @@ def setup_bot_info():
     
     # Configurar nome do bot (se ainda não estiver configurado)
     try:
-        bot_name = "FinanZen Bot"
+        bot_name = "Finly Bot"
         requests.post(
             f"{base_url}/setMyName",
             json={'name': bot_name},
@@ -928,7 +928,7 @@ async def telegram_webhook(
                 send_telegram_msg(chat_id, 
                     "✨ <b>Bem-vindo ao Finan</b><i>Zen</i> ✨\n\n"
                     "🧘‍♂️ O teu <b>ecossistema financeiro</b> está à distância de uma mensagem.\n\n"
-                    "📧 Para começarmos, envia o <b>email</b> que utilizas na plataforma FinanZen.\n\n"
+                    "📧 Para começarmos, envia o <b>email</b> que utilizas na plataforma Finly.\n\n"
                     "💎 <i>Domina o teu dinheiro com simplicidade.</i>")
                 return {'status': 'email_required'}
             else:

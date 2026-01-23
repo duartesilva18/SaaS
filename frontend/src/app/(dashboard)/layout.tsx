@@ -2,6 +2,7 @@
 
 import Sidebar from '@/components/Sidebar';
 import OnboardingModal from '@/components/OnboardingModal';
+import TermsAcceptanceModal from '@/components/TermsAcceptanceModal';
 import SupportButton from '@/components/SupportButton';
 import LoadingIndicator from '@/components/LoadingIndicator';
 import LoadingScreen from '@/components/LoadingScreen';
@@ -20,6 +21,7 @@ export default function DashboardLayout({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showTermsAcceptance, setShowTermsAcceptance] = useState(false);
   const pathname = usePathname();
   const { setCurrency } = useTranslation();
   const { user, loading } = useUser();
@@ -34,7 +36,10 @@ export default function DashboardLayout({
         return;
       }
       
-      if (!user.is_onboarded) {
+      // Verificar se precisa aceitar termos (após onboarding)
+      if (user.is_onboarded && !user.terms_accepted) {
+        setShowTermsAcceptance(true);
+      } else if (!user.is_onboarded) {
         setShowOnboarding(true);
       }
       
@@ -60,6 +65,10 @@ export default function DashboardLayout({
         <OnboardingModal onComplete={() => setShowOnboarding(false)} />
       )}
 
+      {showTermsAcceptance && (
+        <TermsAcceptanceModal onAccept={() => setShowTermsAcceptance(false)} />
+      )}
+
       <Sidebar 
         isCollapsed={isSidebarCollapsed} 
         onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -75,7 +84,7 @@ export default function DashboardLayout({
               <Sparkles size={16} />
             </div>
             <span className="text-lg font-black tracking-tighter text-white">
-              Finan<span className="text-blue-500 italic">Zen</span>
+              Finly
             </span>
           </div>
           <button 

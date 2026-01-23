@@ -235,7 +235,7 @@ async def send_marketing_broadcast(
                     <h2 style="color: #ffffff; margin-top: 0;">{broadcast.subject}</h2>
                     <p style="line-height: 1.6; font-size: 16px;">{broadcast.message}</p>
                     <hr style="border: 0; border-top: 1px solid #1e293b; margin: 30px 0;">
-                    <p style="font-size: 12px; color: #475569;">Recebeu este email porque aceitou as comunicações de marketing do FinanZen.</p>
+                    <p style="font-size: 12px; color: #475569;">Recebeu este email porque aceitou as comunicações de marketing do Finly.</p>
                 </div>
             </body>
             </html>

@@ -15,6 +15,28 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // SEO: Headers para melhor indexação
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+        ],
+      },
+    ];
+  },
   // Otimização de Bundle Size (compatível com Turbopack)
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts', 'framer-motion'],

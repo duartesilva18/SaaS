@@ -32,7 +32,7 @@ const motivationalQuotes = [
   },
   {
     title: "Simplicidade é a chave do sucesso.",
-    quote: "Gaste menos tempo a contar e mais tempo a viver. O registo por WhatsApp leva apenas 3 segundos.",
+    quote: "Gaste menos tempo a contar e mais tempo a viver. O registo por Telegram leva apenas 3 segundos.",
     stat: "Mais de 2.800 portugueses em controlo"
   },
   {
@@ -292,7 +292,7 @@ export default function LoginPage() {
                       {motivationalQuotes[quoteIndex].stat}
                     </span>
                     <span className="text-[8px] lg:text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                      Métrica de impacto FinanZen
+                      Métrica de impacto Finly
                     </span>
                   </div>
                 </div>

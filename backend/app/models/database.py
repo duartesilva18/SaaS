@@ -20,6 +20,8 @@ class User(Base):
     is_email_verified = Column(Boolean, nullable=False, default=False)
     is_onboarded = Column(Boolean, nullable=False, default=False)
     marketing_opt_in = Column(Boolean, nullable=False, default=False)
+    terms_accepted = Column(Boolean, nullable=False, default=False)
+    terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     login_count = Column(Integer, nullable=False, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
     subscription_status = Column(String(50), nullable=False, default='none')

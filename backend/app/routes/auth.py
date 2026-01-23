@@ -122,7 +122,7 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
                 <p class="security-notice">Este link é pessoal, intransmissível e expira em 24 horas.</p>
             </div>
             <div class="footer">
-                FinanZen Portugal © 2026 <br> High-End Financial Management
+                Finly Portugal © 2026 <br> High-End Financial Management
             </div>
         </div>
     </body>
@@ -130,7 +130,7 @@ async def register(request: Request, user_in: schemas.UserCreate, db: Session = 
     '''
     
     message = MessageSchema(
-        subject='FinanZen - Confirme o seu registo',
+        subject='Finly - Confirme o seu registo',
         recipients=[user_in.email],
         body=html,
         subtype=MessageType.html
@@ -346,6 +346,20 @@ async def update_profile(request: Request, onboarding_data: schemas.UserUpdateOn
     logger.info(f'Utilizador atualizou perfil: {current_user.email}')
     return current_user
 
+@router.post('/accept-terms', response_model=schemas.UserResponse)
+async def accept_terms(request: Request, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from datetime import datetime, timezone
+    
+    current_user.terms_accepted = True
+    current_user.terms_accepted_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    await log_action(db, action='terms_accepted', user_id=current_user.id, details=f'Termos aceites: {current_user.email}', request=request)
+    logger.info(f'Utilizador aceitou termos: {current_user.email}')
+    return current_user
+
 @router.delete('/account')
 async def delete_user_account(request: Request, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
@@ -448,7 +462,7 @@ async def request_password_reset(request: Request, data: schemas.PasswordResetRe
                 <p class="security-notice">Este código é válido por apenas 15 minutos e destina-se apenas ao destinatário deste email.</p>
             </div>
             <div class="footer">
-                FinanZen Portugal © 2026 <br> Segurança Bancária Certificada
+                Finly Portugal © 2026 <br> Segurança Bancária Certificada
             </div>
         </div>
     </body>
@@ -465,11 +479,11 @@ async def request_password_reset(request: Request, data: schemas.PasswordResetRe
         MAIL_SSL_TLS=False,
         USE_CREDENTIALS=True,
         VALIDATE_CERTS=True,
-        MAIL_FROM_NAME='FinanZen Portugal'
+        MAIL_FROM_NAME='Finly Portugal'
     )
     
     message = MessageSchema(
-        subject='FinanZen - Código de Recuperação',
+        subject='Finly - Código de Recuperação',
         recipients=[data.email],
         body=html,
         subtype=MessageType.html

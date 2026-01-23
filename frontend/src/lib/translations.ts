@@ -10,7 +10,7 @@ export const translations = {
             title1: "A sua ",
             titleAccent: "paz financeira",
             title2: " começa com um SMS.",
-            description: "O FinanZen elimina a confusão das contas. Registe despesas no Telegram em 3 segundos e relaxe.",
+            description: "O Finly elimina a confusão das contas. Registe despesas no Telegram em 3 segundos e relaxe.",
             cta: "Experimentar Grátis"
         },
         pricing: {
@@ -59,7 +59,7 @@ export const translations = {
                 },
                 {
                     t: "3. Relaxe",
-                    d: "O FinanZen trata de toda a matemática."
+                    d: "O Finly trata de toda a matemática."
                 }
             ]
         },
@@ -89,7 +89,7 @@ export const translations = {
             ]
         },
         footer: {
-            badge: "FINANZEN PORTUGAL 2026",
+            badge: "FINLY PORTUGAL 2026",
             links: [
                 "Termos",
                 "Privacidade",
@@ -99,7 +99,7 @@ export const translations = {
         },
         cookies: {
             title: "Respeitamos a sua privacidade 🍪",
-            description: "Utilizamos cookies para melhorar a sua experiência, analisar o tráfego e personalizar conteúdos. Alguns são essenciais para o FinanZen funcionar.",
+            description: "Utilizamos cookies para melhorar a sua experiência, analisar o tráfego e personalizar conteúdos. Alguns são essenciais para o Finly funcionar.",
             acceptAll: "Aceitar Todos",
             declineAll: "Apenas Essenciais",
             settings: "Definições"
@@ -143,15 +143,15 @@ export const translations = {
             items: [
                 {
                     q: "É seguro ligar o meu Telegram?",
-                    a: "Totalmente. Utilizamos a API oficial do Telegram e encriptação de ponta a ponta. O FinanZen apenas processa as mensagens que envia diretamente para o nosso bot. Nunca solicitamos dados bancários ou passwords."
+                    a: "Totalmente. Utilizamos a API oficial do Telegram e encriptação de ponta a ponta. O Finly apenas processa as mensagens que envia diretamente para o nosso bot. Nunca solicitamos dados bancários ou passwords."
                 },
                 {
                     q: "Como funciona a garantia de 7 dias?",
-                    a: "Se por algum motivo sentir que o FinanZen não é para si, basta solicitar o reembolso nos primeiros 7 dias. Devolvemos 100% do valor, sem perguntas."
+                    a: "Se por algum motivo sentir que o Finly não é para si, basta solicitar o reembolso nos primeiros 7 dias. Devolvemos 100% do valor, sem perguntas."
                 },
                 {
                     q: "Preciso de instalar alguma aplicação?",
-                    a: "Não. O FinanZen funciona diretamente no seu Telegram e através do nosso dashboard web otimizado para telemóvel. Simplicidade total."
+                    a: "Não. O Finly funciona diretamente no seu Telegram e através do nosso dashboard web otimizado para telemóvel. Simplicidade total."
                 },
                 {
                     q: "O plano anual é cobrado de uma só vez?",
@@ -280,7 +280,7 @@ export const translations = {
             },
             onboarding: {
                 title: "Bem-vindo ao ",
-                titleAccent: "FinanZen",
+                titleAccent: "Finly",
                 subtitle: "Precisamos de mais alguns detalhes para personalizar a tua experiência.",
                 fullName: "Nome Completo",
                 phone: "Telemóvel (Telegram)",
@@ -331,7 +331,7 @@ export const translations = {
             },
             support: {
                 tooltip: "Apoio 24/7",
-                message: "Olá! Preciso de ajuda com o FinanZen."
+                message: "Olá! Preciso de ajuda com o Finly."
             },
             categories: {
                 title: "Ecossistema de Categorias",
@@ -358,11 +358,11 @@ export const translations = {
             guide: {
                 title: "Guia do ",
                 titleAccent: "Mestre",
-                subtitle: "Domina as ferramentas do FinanZen e alcança a paz financeira.",
+                subtitle: "Domina as ferramentas do Finly e alcança a paz financeira.",
                 sections: [
                     {
                         title: "Telegram Fin",
-                        description: "A alma do FinanZen. Regista qualquer gasto ou ganho em segundos sem abrir a app.",
+                        description: "A alma do Finly. Regista qualquer gasto ou ganho em segundos sem abrir a app.",
                         features: [
                             "Formato Simples: 'nome valor' (ex: café 1.5)",
                             "Linguagem Natural: O sistema entende o que escreves.",
@@ -423,7 +423,7 @@ export const translations = {
             title1: "Your ",
             titleAccent: "financial peace",
             title2: " starts with a text.",
-            description: "FinanZen eliminates the confusion of bills. Log expenses on Telegram in 3 seconds and relax.",
+            description: "Finly eliminates the confusion of bills. Log expenses on Telegram in 3 seconds and relax.",
             cta: "Try for Free"
         },
         pricing: {
@@ -472,7 +472,7 @@ export const translations = {
                 },
                 {
                     t: "3. Relax",
-                    d: "FinanZen handles all the math."
+                    d: "Finly handles all the math."
                 }
             ]
         },
@@ -502,7 +502,7 @@ export const translations = {
             ]
         },
         footer: {
-            badge: "FINANZEN PORTUGAL 2026",
+            badge: "FINLY PORTUGAL 2026",
             links: [
                 "Terms",
                 "Privacy",
@@ -512,7 +512,7 @@ export const translations = {
         },
         cookies: {
             title: "We respect your privacy 🍪",
-            description: "We use cookies to enhance your experience, analyze traffic, and personalize content. Some are essential for FinanZen to work.",
+            description: "We use cookies to enhance your experience, analyze traffic, and personalize content. Some are essential for Finly to work.",
             acceptAll: "Accept All",
             declineAll: "Essential Only",
             settings: "Settings"
@@ -556,15 +556,15 @@ export const translations = {
             items: [
                 {
                     q: "Is it safe to connect my Telegram?",
-                    a: "Absolutely. We use the official Telegram API and end-to-end encryption. FinanZen only processes messages you send directly to our bot. We never ask for bank details or passwords."
+                    a: "Absolutely. We use the official Telegram API and end-to-end encryption. Finly only processes messages you send directly to our bot. We never ask for bank details or passwords."
                 },
                 {
                     q: "How does the 7-day guarantee work?",
-                    a: "If for any reason you feel FinanZen isn't for you, just request a refund within the first 7 days. We return 100% of the value, no questions asked."
+                    a: "If for any reason you feel Finly isn't for you, just request a refund within the first 7 days. We return 100% of the value, no questions asked."
                 },
                 {
                     q: "Do I need to install any application?",
-                    a: "No. FinanZen works directly on your Telegram and through our mobile-optimized web dashboard. Total simplicity."
+                    a: "No. Finly works directly on your Telegram and through our mobile-optimized web dashboard. Total simplicity."
                 },
                 {
                     q: "Is the annual plan charged all at once?",
@@ -693,7 +693,7 @@ export const translations = {
             },
             onboarding: {
                 title: "Welcome to ",
-                titleAccent: "FinanZen",
+                titleAccent: "Finly",
                 subtitle: "We need a few more details to personalize your experience.",
                 fullName: "Full Name",
                 phone: "Phone (Telegram)",
@@ -744,7 +744,7 @@ export const translations = {
             },
             support: {
                 tooltip: "24/7 Support",
-                message: "Hi! I need help with FinanZen."
+                message: "Hi! I need help with Finly."
             },
             categories: {
                 title: "Category Ecosystem",
@@ -771,7 +771,7 @@ export const translations = {
             guide: {
                 title: "Master ",
                 titleAccent: "Guide",
-                subtitle: "Master the tools of FinanZen and achieve financial peace.",
+                subtitle: "Master the tools of Finly and achieve financial peace.",
                 sections: [
                     {
                         title: "Telegram Bot",
@@ -800,7 +800,7 @@ export const translations = {
                     },
                     {
                         title: "Telegram Fin",
-                        description: "The soul of FinanZen. Register any expense or income in seconds without opening the app.",
+                        description: "The soul of Finly. Register any expense or income in seconds without opening the app.",
                         features: [
                             "Simple Format: 'name value' (e.g., coffee 1.5)",
                             "Natural Language: The system understands what you write.",

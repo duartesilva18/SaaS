@@ -768,7 +768,7 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-400 font-medium italic">Regista despesas por texto ou fotos de recibos em 2 segundos sem abrir a app.</p>
           </div>
           <a 
-            href="https://t.me/FinanZenApp_bot" 
+            href="https://t.me/FinlyApp_bot" 
             target="_blank" 
             rel="noopener noreferrer"
             className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] whitespace-nowrap"
@@ -1002,7 +1002,7 @@ export default function DashboardPage() {
 
               <h2 className="text-5xl font-black text-white tracking-tighter mb-6 uppercase">
                 Bem-vindo à <br />
-                <span className="text-amber-500 italic">Elite FinanZen</span>
+                <span className="text-amber-500 italic">Elite Finly</span>
               </h2>
               
               <div className="flex items-center justify-center gap-3 mb-10 text-amber-500/60 bg-amber-500/5 py-2 px-6 rounded-full w-fit mx-auto border border-amber-500/10">

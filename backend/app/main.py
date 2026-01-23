@@ -29,7 +29,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger('FinanZenAPI')
+logger = logging.getLogger('FinlyAPI')
 
 # Criar tabelas no banco de dados
 Base.metadata.create_all(bind=engine)
@@ -131,7 +131,7 @@ try:
 except Exception as e:
     logger.error(f"Erro na migração da tabela category_mapping_cache: {e}")
 
-app = FastAPI(title='FinanZen - Gestão Financeira Pessoal API')
+app = FastAPI(title='Finly - Gestão Financeira Pessoal API')
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

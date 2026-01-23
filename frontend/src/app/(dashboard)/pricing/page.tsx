@@ -43,7 +43,7 @@ export default function PricingPage() {
         'Gestão de Gastos Ilimitada',
         'Análise Pro & Insights de IA',
         'Gestão de Ciclos Recorrentes',
-        'Suporte via WhatsApp',
+        'Suporte via Telegram',
         'Exportação de Dados (JSON/CSV)',
       ],
       icon: Zap,

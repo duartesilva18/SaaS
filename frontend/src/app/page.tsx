@@ -139,6 +139,34 @@ function FloatingParticles() {
 export default function LandingPage() {
   const { t } = useTranslation();
 
+  // Structured Data para SEO
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Finly",
+    "applicationCategory": "FinanceApplication",
+    "operatingSystem": "Web, Telegram",
+    "offers": {
+      "@type": "Offer",
+      "price": "9.99",
+      "priceCurrency": "EUR",
+      "availability": "https://schema.org/InStock"
+    },
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.8",
+      "ratingCount": "2800"
+    },
+    "description": "Registe despesas no Telegram em 3 segundos. O Finly elimina a confusão das contas e ajuda-te a alcançar a paz financeira.",
+    "featureList": [
+      "Registo de despesas via Telegram",
+      "Gráficos inteligentes",
+      "Categorização automática",
+      "Insights de IA",
+      "Gestão de orçamento"
+    ]
+  };
+
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -174,8 +202,13 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white selection:bg-blue-500/30 overflow-x-hidden relative">
-      <FloatingParticles />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      <div className="min-h-screen bg-[#020617] text-white selection:bg-blue-500/30 overflow-x-hidden relative">
+        <FloatingParticles />
       
       {/* Cursor glow effect */}
       {mounted && (
@@ -244,7 +277,7 @@ export default function LandingPage() {
             className="text-2xl font-black tracking-tighter"
             whileHover={{ scale: 1.1 }}
           >
-            Finan<span className="text-blue-500 italic">Zen</span>
+            Finly
           </motion.span>
         </motion.div>
         
@@ -714,7 +747,7 @@ export default function LandingPage() {
               }}
               transition={{ duration: 3, repeat: Infinity }}
             >
-              Finan<span className="text-blue-500 italic">Zen</span>
+              Finly
             </motion.span>
           </motion.div>
           
@@ -729,20 +762,39 @@ export default function LandingPage() {
           </motion.p>
 
           <div className="flex flex-wrap justify-center gap-8 md:gap-16 mb-16">
-            {t.footer.links.map((link: string, i: number) => (
-              <motion.div
-                key={i}
-                whileHover={{ scale: 1.1, y: -2 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Link href="#" className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 hover:text-white transition-colors relative group">
-                  {link}
-                  <motion.span
-                    className="absolute bottom-0 left-0 w-0 h-0.5 bg-blue-500 group-hover:w-full transition-all duration-300"
-                  />
-                </Link>
-              </motion.div>
-            ))}
+            <motion.div
+              whileHover={{ scale: 1.1, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Link href="/terms" className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 hover:text-white transition-colors relative group">
+                Termos
+                <motion.span
+                  className="absolute bottom-0 left-0 w-0 h-0.5 bg-blue-500 group-hover:w-full transition-all duration-300"
+                />
+              </Link>
+            </motion.div>
+            <motion.div
+              whileHover={{ scale: 1.1, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Link href="/privacy" className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 hover:text-white transition-colors relative group">
+                Privacidade
+                <motion.span
+                  className="absolute bottom-0 left-0 w-0 h-0.5 bg-blue-500 group-hover:w-full transition-all duration-300"
+                />
+              </Link>
+            </motion.div>
+            <motion.div
+              whileHover={{ scale: 1.1, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Link href="#" className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 hover:text-white transition-colors relative group">
+                Cookies
+                <motion.span
+                  className="absolute bottom-0 left-0 w-0 h-0.5 bg-blue-500 group-hover:w-full transition-all duration-300"
+                />
+              </Link>
+            </motion.div>
           </div>
 
           <motion.div 
@@ -769,5 +821,6 @@ export default function LandingPage() {
         </div>
       </motion.footer>
     </div>
+    </>
   );
 }
