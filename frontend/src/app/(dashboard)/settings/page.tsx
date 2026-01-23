@@ -405,7 +405,7 @@ export default function SettingsPage() {
             </p>
 
             <a 
-              href="https://t.me/FinlyApp_bot" 
+              href="https://t.me/FinanZenApp_bot" 
               target="_blank" 
               rel="noopener noreferrer"
               className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 cursor-pointer"

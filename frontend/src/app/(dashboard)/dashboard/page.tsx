@@ -588,7 +588,7 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-400 font-medium italic">{t.dashboard.page.telegramDesc}</p>
           </div>
           <a 
-            href="https://t.me/FinlyApp_bot" 
+            href="https://t.me/FinanZenApp_bot" 
             target="_blank" 
             rel="noopener noreferrer"
             className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] whitespace-nowrap"

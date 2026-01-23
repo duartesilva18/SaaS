@@ -54,9 +54,12 @@ export default function BillingPage() {
         const customerId = userRes.data.stripe_customer_id || '';
         
         setIsSimulated(customerId.startsWith('sim_') || customerId.startsWith('test_'));
+        // Usar valores diretos das traduções para evitar dependências
+        const proPlan = t.dashboard.billing.proPlan;
+        const basePlan = t.dashboard.billing.basePlan;
         setSubData({
           status: userStatus,
-          plan_name: ['active', 'trialing'].includes(userStatus) ? b.proPlan : b.basePlan
+          plan_name: ['active', 'trialing'].includes(userStatus) ? proPlan : basePlan
         });
       } catch (err) {
         console.error("Erro ao carregar dados de faturação:", err);
@@ -66,7 +69,7 @@ export default function BillingPage() {
     };
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // Array vazio - só executa uma vez no mount
 
   const handlePortal = async () => {
     if (isSimulated) {
@@ -93,9 +96,12 @@ export default function BillingPage() {
       });
       // Recarregar dados do utilizador
       const userRes = await api.get('/auth/me');
+      // Usar valores diretos das traduções para evitar dependências
+      const proPlan = t.dashboard.billing.proPlan;
+      const basePlan = t.dashboard.billing.basePlan;
       setSubData({
         status: userRes.data.subscription_status,
-        plan_name: ['active', 'trialing'].includes(userRes.data.subscription_status) ? b.proPlan : b.basePlan
+        plan_name: ['active', 'trialing'].includes(userRes.data.subscription_status) ? proPlan : basePlan
       });
     } catch (err: any) {
       setToast({

@@ -15,7 +15,7 @@ export default function GuidePage() {
   const guide = t.dashboard.guide;
 
   const sectionRoutes = [
-    'https://t.me/FinlyApp_bot', // Telegram bot
+    'https://t.me/FinanZenApp_bot', // Telegram bot
     '/dashboard', // Telegram (mostra dashboard)
     '/dashboard',
     '/recurring',
@@ -142,7 +142,7 @@ export default function GuidePage() {
 
             <div className="flex flex-wrap gap-4 pt-4">
               <a 
-                href="https://t.me/FinlyApp_bot"
+                href="https://t.me/FinanZenApp_bot"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-95 cursor-pointer flex items-center gap-2"

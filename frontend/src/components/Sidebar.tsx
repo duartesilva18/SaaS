@@ -113,7 +113,7 @@ const menuSections = (t: any) => [
     items: [
       {
         name: t.dashboard.sidebar.telegramBot || "Bot Telegram",
-        href: 'https://t.me/FinlyApp_bot',
+        href: 'https://t.me/FinanZenApp_bot',
         icon: Send,
         isExternal: true
       },
