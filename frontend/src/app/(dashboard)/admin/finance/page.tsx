@@ -143,10 +143,10 @@ export default function AdminFinancePage() {
         {financeStats?.monthly_revenue && financeStats.monthly_revenue.length > 0 ? (
           <div className="h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={financeStats.monthly_revenue.map(item => {
+              <AreaChart data={financeStats.monthly_revenue.map((item: { revenue_cents: number; [key: string]: any }) => {
                 const revenue = item.revenue_cents / 100;
                 // Calcular média
-                const allRevenues = financeStats.monthly_revenue.map(i => i.revenue_cents / 100);
+                const allRevenues = financeStats.monthly_revenue.map((i: { revenue_cents: number }) => i.revenue_cents / 100);
                 const average = allRevenues.reduce((a, b) => a + b, 0) / allRevenues.length;
                 return {
                   ...item,
