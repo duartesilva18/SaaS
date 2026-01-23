@@ -148,7 +148,7 @@ function CheckEmailContent() {
 
       <div className="absolute bottom-8 lg:bottom-12 right-12 text-[10px] font-black text-slate-700 uppercase tracking-[0.5em] opacity-50 flex items-center gap-3">
         <Sparkles size={14} />
-        Finly Portugal 2026
+        FinanZen Portugal 2026
       </div>
     </div>
   );

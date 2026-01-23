@@ -6,10 +6,8 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, ArrowRight, Lock, AlertCircle, ChevronLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import api from '@/lib/api';
-import { useTranslation } from '@/lib/LanguageContext';
 
 export default function ResetPasswordPage() {
-  const { t } = useTranslation();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -31,13 +29,13 @@ export default function ResetPasswordPage() {
     setError('');
     
     if (code.length !== 6) {
-      setError(t.auth.resetPassword.codeError);
+      setError('O código deve ter 6 dígitos.');
       setIsShaking(true);
       return;
     }
 
     if (newPassword.length < 6) {
-      setError(t.auth.resetPassword.passwordError);
+      setError('A nova password deve ter pelo menos 6 caracteres.');
       setIsShaking(true);
       return;
     }
@@ -54,7 +52,7 @@ export default function ResetPasswordPage() {
         router.push('/auth/login');
       }, 3000);
     } catch (err: any) {
-      setError(err.response?.data?.detail || t.auth.resetPassword.invalidCode);
+      setError(err.response?.data?.detail || 'Código inválido ou expirado.');
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
     } finally {
@@ -70,7 +68,7 @@ export default function ResetPasswordPage() {
           className="flex items-center gap-2 text-slate-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-[0.3em] cursor-pointer"
         >
           <ChevronLeft size={14} />
-          {t.auth.resetPassword.back}
+          Voltar
         </Link>
       </div>
 
@@ -80,10 +78,10 @@ export default function ResetPasswordPage() {
             <Lock size={24} />
           </div>
           <h1 className="text-4xl lg:text-5xl font-black tracking-tighter mb-3 lg:mb-4 text-white">
-            {t.auth.resetPassword.title}<span className="text-blue-500 italic">{t.auth.resetPassword.titleAccent}</span>
+            Nova <span className="text-blue-500 italic">Password</span>
           </h1>
           <p className="text-slate-500 font-medium text-base lg:text-lg italic">
-            {t.auth.resetPassword.subtitle.replace('{email}', email)}
+            Introduza o código enviado para {email} e escolha a sua nova password.
           </p>
         </div>
 
@@ -115,7 +113,7 @@ export default function ResetPasswordPage() {
                 <div className="w-8 h-8 bg-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
                   <CheckCircle2 size={16} />
                 </div>
-                {t.auth.resetPassword.successMessage}
+                Password alterada com sucesso! A redirecionar...
               </motion.div>
             )}
           </AnimatePresence>
@@ -124,7 +122,7 @@ export default function ResetPasswordPage() {
             <form onSubmit={handleSubmit} noValidate className="space-y-6 lg:space-y-8">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 ml-2">
-                  {t.auth.resetPassword.codeLabel}
+                  Código de 6 dígitos
                 </label>
                 <input
                   type="text"
@@ -132,14 +130,14 @@ export default function ResetPasswordPage() {
                   value={code}
                   onChange={(e) => { setCode(e.target.value.replace(/\D/g, '')); if (error) setError(''); }}
                   className={`w-full bg-slate-950/50 border rounded-[24px] py-5 lg:py-6 px-6 text-center text-2xl tracking-[0.5em] focus:outline-none transition-all placeholder:text-slate-800 font-bold ${error ? 'border-red-500/50 bg-red-500/5' : 'border-slate-800 focus:border-blue-500'}`}
-                  placeholder={t.auth.resetPassword.codePlaceholder}
+                  placeholder="000000"
                   required
                 />
               </div>
 
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 ml-2">
-                  {t.auth.resetPassword.passwordLabel}
+                  Nova Password
                 </label>
                 <div className="relative group/input">
                   <div className={`absolute left-5 top-1/2 -translate-y-1/2 transition-colors duration-300 ${error ? 'text-red-500' : 'text-slate-500 group-focus-within/input:text-blue-500'}`}>
@@ -150,7 +148,7 @@ export default function ResetPasswordPage() {
                     value={newPassword}
                     onChange={(e) => { setNewPassword(e.target.value); if (error) setError(''); }}
                     className={`w-full bg-slate-950/50 border rounded-[24px] py-5 lg:py-6 pl-14 pr-12 text-sm lg:text-base focus:outline-none transition-all placeholder:text-slate-800 font-medium ${error ? 'border-red-500/50 bg-red-500/5' : 'border-slate-800 focus:border-blue-500'}`}
-                    placeholder={t.auth.resetPassword.passwordPlaceholder}
+                    placeholder="••••••••••••"
                     required
                   />
                   <button
@@ -172,7 +170,7 @@ export default function ResetPasswordPage() {
                   <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
                   <>
-                    {t.auth.resetPassword.submit} <ArrowRight size={20} />
+                    Confirmar Nova Password <ArrowRight size={20} />
                   </>
                 )}
               </button>

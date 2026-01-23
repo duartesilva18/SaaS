@@ -15,7 +15,7 @@ import { useTranslation } from '@/lib/LanguageContext';
 import { ChartSkeleton } from '@/components/LoadingSkeleton';
 
 export default function VaultPage() {
-  const { t, formatCurrency } = useTranslation();
+  const { formatCurrency } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -53,9 +53,7 @@ export default function VaultPage() {
     try {
       const category = vaultModal.category;
       const amount_cents = Math.round(parseFloat(vaultAmount) * 100);
-      // Se é adicionar: amount positivo (depósito/poupança)
-      // Se é retirar: amount negativo (resgate/despesa)
-      const finalAmount = vaultModal.action === 'add' ? Math.abs(amount_cents) : -Math.abs(amount_cents);
+      const finalAmount = vaultModal.action === 'add' ? -Math.abs(amount_cents) : Math.abs(amount_cents);
 
       // Verificar saldo se for resgate
       if (vaultModal.action === 'withdraw') {
@@ -64,14 +62,11 @@ export default function VaultPage() {
           return cat && cat.id === category.id;
         });
         
-        // Calcular saldo atual: depósitos (positivos) aumentam, resgates (negativos) diminuem
         const currentBalance = vaultTransactions.reduce((balance: number, t: any) => {
-          if (t.amount_cents > 0) {
-            // Depósito: adicionar valor
-            return balance + t.amount_cents;
+          if (t.amount_cents < 0) {
+            return balance + Math.abs(t.amount_cents);
           } else {
-            // Resgate: subtrair valor absoluto
-            return balance - Math.abs(t.amount_cents);
+            return balance - t.amount_cents;
           }
         }, 0);
         
@@ -79,7 +74,7 @@ export default function VaultPage() {
         
         if (amount_cents > currentBalance || balanceAfterWithdrawal < 0) {
           const available = (currentBalance / 100).toFixed(2);
-          alert(`❌ ${t.dashboard.vault.insufficientBalance}\n\n${t.dashboard.vault.available} ${formatCurrency(parseFloat(available))}\n${t.dashboard.vault.attempt} ${formatCurrency(parseFloat(vaultAmount))}\n\n${t.dashboard.vault.cannotBeNegative}`);
+          alert(`❌ Saldo insuficiente!\n\nDisponível: ${formatCurrency(parseFloat(available))}\nTentativa: ${formatCurrency(parseFloat(vaultAmount))}\n\nNão é possível deixar o cofre com saldo negativo.`);
           setVaultLoading(false);
           return;
         }
@@ -87,7 +82,7 @@ export default function VaultPage() {
 
       const payload = {
         amount_cents: finalAmount,
-        description: vaultModal.action === 'add' ? `${t.dashboard.vault.depositIn} ${category.name}` : `${t.dashboard.vault.withdrawalFrom} ${category.name}`,
+        description: vaultModal.action === 'add' ? `Depósito em ${category.name}` : `Resgate de ${category.name}`,
         category_id: category.id,
         transaction_date: new Date().toISOString().split('T')[0],
         is_installment: false
@@ -130,14 +125,12 @@ export default function VaultPage() {
       const cat = categories.find((c: any) => c.id === t.category_id);
       
       if (cat?.vault_type === 'emergency') {
-        if (t.amount_cents > 0) {
-          // Depósito: positivo aumenta o vault
-          emergencyTotal += t.amount_cents / 100;
-          emergencyRunning += t.amount_cents / 100;
+        if (t.amount_cents < 0) {
+          emergencyTotal += Math.abs(t.amount_cents / 100);
+          emergencyRunning += Math.abs(t.amount_cents / 100);
         } else {
-          // Resgate: negativo diminui o vault
-          emergencyTotal -= Math.abs(t.amount_cents / 100);
-          emergencyRunning -= Math.abs(t.amount_cents / 100);
+          emergencyTotal -= t.amount_cents / 100;
+          emergencyRunning -= t.amount_cents / 100;
         }
         emergencyTransactions.push({ ...t, category: cat });
         emergencyEvolution.push({
@@ -147,14 +140,12 @@ export default function VaultPage() {
       }
       
       if (cat?.vault_type === 'investment') {
-        if (t.amount_cents > 0) {
-          // Depósito: positivo aumenta o vault
-          investmentTotal += t.amount_cents / 100;
-          investmentRunning += t.amount_cents / 100;
+        if (t.amount_cents < 0) {
+          investmentTotal += Math.abs(t.amount_cents / 100);
+          investmentRunning += Math.abs(t.amount_cents / 100);
         } else {
-          // Resgate: negativo diminui o vault
-          investmentTotal -= Math.abs(t.amount_cents / 100);
-          investmentRunning -= Math.abs(t.amount_cents / 100);
+          investmentTotal -= t.amount_cents / 100;
+          investmentRunning -= t.amount_cents / 100;
         }
         investmentTransactions.push({ ...t, category: cat });
         investmentEvolution.push({
@@ -173,8 +164,8 @@ export default function VaultPage() {
       if (!emergencyMonthly[month]) {
         emergencyMonthly[month] = { month, deposits: 0, withdrawals: 0 };
       }
-      if (t.amount_cents > 0) {
-        emergencyMonthly[month].deposits += t.amount_cents / 100;
+      if (t.amount_cents < 0) {
+        emergencyMonthly[month].deposits += Math.abs(t.amount_cents / 100);
       } else {
         emergencyMonthly[month].withdrawals += Math.abs(t.amount_cents / 100);
       }
@@ -185,8 +176,8 @@ export default function VaultPage() {
       if (!investmentMonthly[month]) {
         investmentMonthly[month] = { month, deposits: 0, withdrawals: 0 };
       }
-      if (t.amount_cents > 0) {
-        investmentMonthly[month].deposits += t.amount_cents / 100;
+      if (t.amount_cents < 0) {
+        investmentMonthly[month].deposits += Math.abs(t.amount_cents / 100);
       } else {
         investmentMonthly[month].withdrawals += Math.abs(t.amount_cents / 100);
       }
@@ -227,8 +218,8 @@ export default function VaultPage() {
             <Landmark size={24} />
           </div>
           <div>
-            <h1 className="text-4xl font-black tracking-tighter text-white">{t.dashboard.vault.title}</h1>
-            <p className="text-sm text-slate-400 mt-1">{t.dashboard.vault.subtitle}</p>
+            <h1 className="text-4xl font-black tracking-tighter text-white">Cofre de Reservas</h1>
+            <p className="text-sm text-slate-400 mt-1">Segurança e Investimento</p>
           </div>
         </div>
       </div>
@@ -246,7 +237,7 @@ export default function VaultPage() {
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-2">{t.dashboard.vault.emergencyFund}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-2">Fundo de Emergência</p>
                 <p className="text-3xl font-black text-white">{formatCurrency(vaultData.emergencyTotal)}</p>
               </div>
               <div className="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center">
@@ -268,14 +259,14 @@ export default function VaultPage() {
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-xl transition-all group/btn cursor-pointer"
                 >
                   <Plus size={16} className="text-blue-400 group-hover/btn:scale-110 transition-transform" />
-                  <span className="text-xs font-black uppercase tracking-widest text-blue-400">{t.dashboard.vault.add}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-blue-400">Adicionar</span>
                 </button>
                 <button
                   onClick={() => setVaultModal({ open: true, category: vaultData.emergencyCategory, action: 'withdraw' })}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl transition-all group/btn cursor-pointer"
                 >
                   <Minus size={16} className="text-red-400 group-hover/btn:scale-110 transition-transform" />
-                  <span className="text-xs font-black uppercase tracking-widest text-red-400">{t.dashboard.vault.withdraw}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-red-400">Retirar</span>
                 </button>
               </div>
             )}
@@ -294,7 +285,7 @@ export default function VaultPage() {
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-2">{t.dashboard.vault.zenInvestments}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-2">Investimentos Zen</p>
                 <p className="text-3xl font-black text-emerald-400">{formatCurrency(vaultData.investmentTotal)}</p>
               </div>
               <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center">
@@ -316,14 +307,14 @@ export default function VaultPage() {
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl transition-all group/btn cursor-pointer"
                 >
                   <Plus size={16} className="text-emerald-400 group-hover/btn:scale-110 transition-transform" />
-                  <span className="text-xs font-black uppercase tracking-widest text-emerald-400">{t.dashboard.vault.add}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-emerald-400">Adicionar</span>
                 </button>
                 <button
                   onClick={() => setVaultModal({ open: true, category: vaultData.investmentCategory, action: 'withdraw' })}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl transition-all group/btn cursor-pointer"
                 >
                   <Minus size={16} className="text-red-400 group-hover/btn:scale-110 transition-transform" />
-                  <span className="text-xs font-black uppercase tracking-widest text-red-400">{t.dashboard.vault.withdraw}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-red-400">Retirar</span>
                 </button>
               </div>
             )}
@@ -342,7 +333,7 @@ export default function VaultPage() {
         >
           <div className="flex items-center gap-3 mb-6">
             <ShieldCheck className="text-blue-400" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.vault.evolutionEmergency}</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest text-white">Evolução Fundo de Emergência</h3>
           </div>
           <ResponsiveContainer width="100%" height={250}>
             <AreaChart data={vaultData.emergencyEvolution}>
@@ -394,7 +385,7 @@ export default function VaultPage() {
         >
           <div className="flex items-center gap-3 mb-6">
             <Target className="text-emerald-400" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.vault.evolutionInvestments}</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest text-white">Evolução Investimentos</h3>
           </div>
           <ResponsiveContainer width="100%" height={250}>
             <AreaChart data={vaultData.investmentEvolution}>
@@ -450,9 +441,9 @@ export default function VaultPage() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <ShieldCheck className="text-blue-400" size={18} />
-              <h3 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.vault.monthlyActivity}</h3>
+              <h3 className="text-sm font-black uppercase tracking-widest text-white">Atividade Mensal</h3>
             </div>
-            <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">{t.dashboard.vault.emergencyFund}</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">Fundo de Emergência</span>
           </div>
           
           {vaultData.emergencyMonthly.length > 0 ? (
@@ -535,9 +526,9 @@ export default function VaultPage() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <Target className="text-emerald-400" size={18} />
-              <h3 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.vault.monthlyActivity}</h3>
+              <h3 className="text-sm font-black uppercase tracking-widest text-white">Atividade Mensal</h3>
             </div>
-            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">{t.dashboard.vault.investments}</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Investimentos</span>
           </div>
           
           {vaultData.investmentMonthly.length > 0 ? (
@@ -622,7 +613,7 @@ export default function VaultPage() {
         >
           <div className="flex items-center gap-3 mb-6">
             <ShieldCheck className="text-blue-400" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.vault.transactionsEmergency}</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest text-white">Transações - Fundo de Emergência</h3>
           </div>
           <div className="space-y-3 max-h-[400px] overflow-y-auto">
             {vaultData.emergencyTransactions.length > 0 ? (
@@ -636,26 +627,26 @@ export default function VaultPage() {
                 >
                   <div className="flex items-center gap-4">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      t.amount_cents > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                      t.amount_cents < 0 ? 'bg-blue-500/10 text-blue-400' : 'bg-red-500/10 text-red-400'
                     }`}>
-                      {t.amount_cents > 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                      {t.amount_cents < 0 ? <ArrowDownRight size={18} /> : <ArrowUpRight size={18} />}
                     </div>
                     <div>
-                      <p className="text-xs font-black text-white">{t.description || t.dashboard.vault.noDescription}</p>
+                      <p className="text-xs font-black text-white">{t.description || 'Sem descrição'}</p>
                       <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
                         {new Date(t.transaction_date || t.created_at).toLocaleDateString('pt-PT')}
                       </p>
                     </div>
                   </div>
                   <span className={`text-sm font-black ${
-                    t.amount_cents > 0 ? 'text-emerald-400' : 'text-red-400'
+                    t.amount_cents < 0 ? 'text-blue-400' : 'text-red-400'
                   }`}>
-                    {t.amount_cents > 0 ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
+                    {t.amount_cents < 0 ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
                   </span>
                 </motion.div>
               ))
             ) : (
-              <p className="text-center text-slate-500 text-xs italic py-10">{t.dashboard.vault.noTransactions}</p>
+              <p className="text-center text-slate-500 text-xs italic py-10">Sem transações ainda</p>
             )}
           </div>
         </motion.div>
@@ -669,7 +660,7 @@ export default function VaultPage() {
         >
           <div className="flex items-center gap-3 mb-6">
             <Target className="text-emerald-400" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.vault.transactionsInvestments}</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest text-white">Transações - Investimentos</h3>
           </div>
           <div className="space-y-3 max-h-[400px] overflow-y-auto">
             {vaultData.investmentTransactions.length > 0 ? (
@@ -683,26 +674,26 @@ export default function VaultPage() {
                 >
                   <div className="flex items-center gap-4">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      t.amount_cents > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                      t.amount_cents < 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
                     }`}>
-                      {t.amount_cents > 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                      {t.amount_cents < 0 ? <ArrowDownRight size={18} /> : <ArrowUpRight size={18} />}
                     </div>
                     <div>
-                      <p className="text-xs font-black text-white">{t.description || t.dashboard.vault.noDescription}</p>
+                      <p className="text-xs font-black text-white">{t.description || 'Sem descrição'}</p>
                       <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">
                         {new Date(t.transaction_date || t.created_at).toLocaleDateString('pt-PT')}
                       </p>
                     </div>
                   </div>
                   <span className={`text-sm font-black ${
-                    t.amount_cents > 0 ? 'text-emerald-400' : 'text-red-400'
+                    t.amount_cents < 0 ? 'text-emerald-400' : 'text-red-400'
                   }`}>
-                    {t.amount_cents > 0 ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
+                    {t.amount_cents < 0 ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
                   </span>
                 </motion.div>
               ))
             ) : (
-              <p className="text-center text-slate-500 text-xs italic py-10">{t.dashboard.vault.noTransactions}</p>
+              <p className="text-center text-slate-500 text-xs italic py-10">Sem transações ainda</p>
             )}
           </div>
         </motion.div>
@@ -739,7 +730,7 @@ export default function VaultPage() {
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-white uppercase tracking-widest">
-                      {vaultModal.action === 'add' ? t.dashboard.vault.add : t.dashboard.vault.withdraw}
+                      {vaultModal.action === 'add' ? 'Adicionar' : 'Retirar'}
                     </h3>
                     <p className="text-xs text-slate-400">{vaultModal.category.name}</p>
                   </div>
@@ -761,7 +752,7 @@ export default function VaultPage() {
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">
-                    {t.dashboard.vault.value}
+                    Valor (€)
                   </label>
                   <input
                     type="number"
@@ -792,7 +783,7 @@ export default function VaultPage() {
                     disabled={vaultLoading}
                     className="flex-1 px-4 py-3 border border-slate-700 text-slate-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-white/5 transition-colors cursor-pointer disabled:opacity-50"
                   >
-                    {t.dashboard.vault.cancel}
+                    Cancelar
                   </button>
                   <button
                     onClick={handleVaultTransaction}
@@ -805,7 +796,7 @@ export default function VaultPage() {
                         : 'bg-red-500 hover:bg-red-400 text-white'
                     }`}
                   >
-                    {vaultLoading ? t.dashboard.vault.processing : vaultModal.action === 'add' ? t.dashboard.vault.add : t.dashboard.vault.withdraw}
+                    {vaultLoading ? 'A processar...' : vaultModal.action === 'add' ? 'Adicionar' : 'Retirar'}
                   </button>
                 </div>
               </div>

@@ -29,7 +29,7 @@ export default function PricingModal({ isVisible, onClose }: PricingModalProps) 
       window.location.href = res.data.url;
     } catch (err) {
       console.error(err);
-      alert(t.dashboard.pricing.monthlyPlan.error);
+      alert('Erro ao iniciar checkout. Certifique-se de que está logado.');
     } finally {
       setLoading(null);
     }
@@ -38,21 +38,33 @@ export default function PricingModal({ isVisible, onClose }: PricingModalProps) 
   const plans = [
     {
       id: 'monthly',
-      name: t.dashboard.pricing.monthlyPlan.name,
+      name: 'Plano Mensal',
       price: 9.99,
       priceId: 'price_1SrkUWLtWlVpaXrb8zFq6OvW',
-      description: t.dashboard.pricing.monthlyPlan.description,
-      features: t.dashboard.pricing.monthlyPlan.features,
+      description: 'Ideal para quem quer testar a potência da gestão zen.',
+      features: [
+        'Gestão de Gastos Ilimitada',
+        'Análise Pro & Insights de IA',
+        'Gestão de Ciclos Recorrentes',
+        'Suporte via WhatsApp',
+        'Exportação de Dados (JSON/CSV)',
+      ],
       icon: Zap,
       color: 'blue'
     },
     {
       id: 'yearly',
-      name: t.dashboard.pricing.yearlyPlan.name,
+      name: 'Plano Anual',
       price: 89.90, // ~7.49/mês
-      priceId: 'price_1SrkUrLtWlVpaXrb8zFq6OvW',
-      description: t.dashboard.pricing.yearlyPlan.description,
-      features: t.dashboard.pricing.yearlyPlan.features,
+      priceId: 'price_1SrkUrLtWlVpaXrbeE2M4mEB',
+      description: 'A escolha dos mestres financeiros. Máxima economia e foco.',
+      features: [
+        'Tudo do plano Mensal',
+        'Economia de 25% (2 Meses Grátis)',
+        'Relatórios de Evolução Anual',
+        'Acesso Antecipado a Novas Funções',
+        'Selo VIP na Dashboard',
+      ],
       icon: Crown,
       popular: true,
       color: 'indigo'
@@ -197,7 +209,7 @@ export default function PricingModal({ isVisible, onClose }: PricingModalProps) 
                     </div>
 
                     <div className="space-y-5 mb-10 flex-grow">
-                      {plan.features.map((f: string, i: number) => (
+                      {plan.features.map((f, i) => (
                         <div key={i} className="flex items-center gap-4 text-sm text-slate-400 font-medium group/feat">
                           <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${plan.popular ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-600'}`}>
                             <Check size={12} strokeWidth={4} />

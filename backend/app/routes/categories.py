@@ -13,26 +13,18 @@ from datetime import date
 router = APIRouter(prefix='/categories', tags=['categories'])
 
 @router.get('/', response_model=List[schemas.CategoryResponse])
-async def get_categories(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Usar workspace cacheado se disponível
-    workspace = getattr(request.state, 'workspace', None)
+async def get_categories(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
     if not workspace:
-        workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
-        if not workspace:
-            raise HTTPException(status_code=404, detail='Workspace not found')
-        request.state.workspace = workspace
+        raise HTTPException(status_code=404, detail='Workspace not found')
     
     return db.query(models.Category).filter(models.Category.workspace_id == workspace.id).all()
 
 @router.get('/stats', response_model=List[schemas.CategoryStats])
-async def get_category_stats(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Usar workspace cacheado se disponível
-    workspace = getattr(request.state, 'workspace', None)
+async def get_category_stats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
     if not workspace:
-        workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
-        if not workspace:
-            raise HTTPException(status_code=404, detail='Workspace not found')
-        request.state.workspace = workspace
+        raise HTTPException(status_code=404, detail='Workspace not found')
     
     today = date.today()
     start_of_month = date(today.year, today.month, 1)

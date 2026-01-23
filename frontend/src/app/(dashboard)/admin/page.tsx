@@ -132,7 +132,7 @@ export default function AdminDashboardPage() {
           <h1 className="text-4xl font-black tracking-tighter text-white mb-2 uppercase">
             Painel de <span className="text-blue-500 italic">Comando</span>
           </h1>
-          <p className="text-slate-500 font-medium italic text-sm">Controlo total sobre o ecossistema Finly.</p>
+          <p className="text-slate-500 font-medium italic text-sm">Controlo total sobre o ecossistema FinanZen.</p>
         </div>
         <div className="flex items-center gap-4 bg-slate-900/50 border border-slate-800 p-2 rounded-2xl">
           <ShieldAlert className="text-blue-500" size={20} />
@@ -159,13 +159,13 @@ export default function AdminDashboardPage() {
         ))}
       </div>
 
-      {/* Telegram Support Config */}
+      {/* WhatsApp Support Config */}
       <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-600/5 blur-[100px] rounded-full -z-10" />
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div>
             <h2 className="text-xl font-black text-white uppercase tracking-widest text-[11px] opacity-60 mb-1">Configuração de Suporte</h2>
-            <p className="text-xs text-slate-500 italic">Define o número de telemóvel para o botão de Telegram</p>
+            <p className="text-xs text-slate-500 italic">Define o número de telemóvel para o botão de WhatsApp</p>
           </div>
           <div className="flex gap-4 w-full md:w-auto">
             <div className="relative flex-1 md:w-64">

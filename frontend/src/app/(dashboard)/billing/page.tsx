@@ -54,12 +54,9 @@ export default function BillingPage() {
         const customerId = userRes.data.stripe_customer_id || '';
         
         setIsSimulated(customerId.startsWith('sim_') || customerId.startsWith('test_'));
-        // Usar valores diretos das traduções para evitar dependências
-        const proPlan = t.dashboard.billing.proPlan;
-        const basePlan = t.dashboard.billing.basePlan;
         setSubData({
           status: userStatus,
-          plan_name: ['active', 'trialing'].includes(userStatus) ? proPlan : basePlan
+          plan_name: ['active', 'trialing'].includes(userStatus) ? 'Plano Pro' : 'Plano Base'
         });
       } catch (err) {
         console.error("Erro ao carregar dados de faturação:", err);
@@ -68,19 +65,18 @@ export default function BillingPage() {
       }
     };
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Array vazio - só executa uma vez no mount
+  }, []);
 
   const handlePortal = async () => {
     if (isSimulated) {
-      alert(b.simulationMode);
+      alert("Estás em modo de simulação. O portal Stripe só está disponível para subscrições reais.");
       return;
     }
     try {
       const res = await api.post('/stripe/portal');
       window.location.href = res.data.url;
     } catch (err) {
-      alert(b.portalError);
+      alert("Não foi possível abrir o portal Stripe.");
     }
   };
 
@@ -91,22 +87,19 @@ export default function BillingPage() {
       setShowCancelModal(false);
       setToast({
         isVisible: true,
-        message: b.cancelSuccess,
+        message: 'Subscrição será cancelada no final do período atual.',
         type: 'success'
       });
       // Recarregar dados do utilizador
       const userRes = await api.get('/auth/me');
-      // Usar valores diretos das traduções para evitar dependências
-      const proPlan = t.dashboard.billing.proPlan;
-      const basePlan = t.dashboard.billing.basePlan;
       setSubData({
         status: userRes.data.subscription_status,
-        plan_name: ['active', 'trialing'].includes(userRes.data.subscription_status) ? proPlan : basePlan
+        plan_name: ['active', 'trialing'].includes(userRes.data.subscription_status) ? 'Plano Pro' : 'Plano Base'
       });
     } catch (err: any) {
       setToast({
         isVisible: true,
-        message: err.response?.data?.detail || b.cancelError,
+        message: err.response?.data?.detail || 'Erro ao cancelar subscrição.',
         type: 'error'
       });
     } finally {
@@ -126,10 +119,10 @@ export default function BillingPage() {
 
   const getStatusLabel = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'paid': return b.paid;
-      case 'open': return b.pending;
-      case 'unpaid': return b.unpaid;
-      case 'void': return b.void;
+      case 'paid': return 'Pago';
+      case 'open': return 'Pendente';
+      case 'unpaid': return 'Falhou / Não Pago';
+      case 'void': return 'Anulado';
       default: return status.toUpperCase();
     }
   };
@@ -138,7 +131,7 @@ export default function BillingPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{b.loadingHistory}</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">A carregar histórico...</p>
       </div>
     );
   }
@@ -150,7 +143,7 @@ export default function BillingPage() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
           <div className="space-y-4">
             <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full text-blue-400 text-[10px] font-black uppercase tracking-widest">
-              <ShieldCheck size={14} /> {b.secureBilling}
+              <ShieldCheck size={14} /> Faturação Segura
             </div>
             <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">
               {b.title}<span className="text-blue-500 italic">{b.titleAccent}</span>
@@ -182,7 +175,7 @@ export default function BillingPage() {
           </div>
           <div className="mt-8 relative z-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/10 rounded-full text-blue-400 text-[10px] font-bold">
-              <Sparkles size={12} /> {b.activeBenefits}
+              <Sparkles size={12} /> Benefícios Ativos
             </div>
           </div>
         </motion.div>
@@ -210,7 +203,7 @@ export default function BillingPage() {
                 <AlertCircle size={18} />
               )}
               {subData?.status === 'cancel_at_period_end' 
-                ? b.states.cancel_at_period_end
+                ? 'Pedido de Cancelamento' 
                 : b.states[subData?.status as keyof typeof b.states] || subData?.status}
             </div>
           </div>
@@ -226,11 +219,11 @@ export default function BillingPage() {
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">{b.nextPayment}</p>
             <div className="flex items-center gap-3 text-white font-black text-xl tracking-tighter uppercase">
               <Calendar size={20} className="text-blue-500" />
-              {isSimulated ? b.demoMode : b.viewInPortal}
+              {isSimulated ? 'Modo Demo' : 'Ver no Portal'}
             </div>
           </div>
           <p className="text-[10px] font-medium text-slate-500 mt-4 uppercase">
-            {isSimulated ? b.noRealRenewal : b.autoRenewalActive}
+            {isSimulated ? 'Sem renovação real' : 'Renovação automática ativa'}
           </p>
         </motion.div>
       </section>
@@ -239,7 +232,7 @@ export default function BillingPage() {
       <section className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 rounded-[48px] overflow-hidden shadow-2xl">
         <div className="p-8 md:p-12">
           <h2 className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-8 flex items-center gap-2">
-            <FileText size={14} /> {b.stripeHistory}
+            <FileText size={14} /> Histórico de Transações Stripe
           </h2>
 
           {invoices.length === 0 ? (
@@ -335,7 +328,7 @@ export default function BillingPage() {
           <ShieldCheck size={24} />
         </div>
         <p className="text-slate-400 text-sm font-medium flex-1">
-          {b.stripeInfo}
+          As tuas faturas são processadas pelo **Stripe**. Podes descarregar o recibo oficial em PDF para cada transação acima. Para alterar o método de pagamento, usa o botão **"Gerir no Stripe"**.
         </p>
       </section>
 
@@ -366,7 +359,7 @@ export default function BillingPage() {
                       <AlertCircle size={24} />
                     </div>
                     <h2 className="text-2xl font-black text-white uppercase tracking-tighter">
-                      {b.cancelSubscription}
+                      Cancelar Subscrição
                     </h2>
                   </div>
                   {!isCanceling && (
@@ -381,11 +374,11 @@ export default function BillingPage() {
 
                 <div className="space-y-6 mb-8">
                   <p className="text-slate-300 font-medium leading-relaxed">
-                    {b.cancelConfirm}
+                    Tens a certeza que queres cancelar a tua subscrição?
                   </p>
                   <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
                     <p className="text-sm text-amber-400 font-medium">
-                      {b.cancelWarning}
+                      A tua subscrição será cancelada no final do período atual. Continuarás a ter acesso a todas as funcionalidades Pro até essa data.
                     </p>
                   </div>
                 </div>
@@ -396,7 +389,7 @@ export default function BillingPage() {
                     disabled={isCanceling}
                     className="flex-1 px-6 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    {b.keepSubscription}
+                    Manter Subscrição
                   </button>
                   <button
                     onClick={handleCancelSubscription}
@@ -406,12 +399,12 @@ export default function BillingPage() {
                     {isCanceling ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        {b.processing}
+                        A processar...
                       </>
                     ) : (
                       <>
                         <Trash2 size={16} />
-                        {b.confirmCancel}
+                        Confirmar Cancelamento
                       </>
                     )}
                   </button>

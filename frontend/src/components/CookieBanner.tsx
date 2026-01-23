@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Cookie, ShieldCheck, ChevronRight, X } from 'lucide-react';
-import Link from 'next/link';
 import { useTranslation } from '@/lib/LanguageContext';
 
 // Helper function para verificar consentimento (exportada para uso global)
@@ -88,10 +87,7 @@ export default function CookieBanner() {
                   {t.cookies.title}
                 </h3>
                 <p className="text-slate-400 text-xs leading-relaxed">
-                  Utilizamos cookies para melhorar a sua experiência, analisar o tráfego e personalizar conteúdos. Alguns são essenciais para o Finly funcionar.{' '}
-                  <Link href="/privacy" className="text-blue-400 hover:text-blue-300 underline">
-                    Política de Privacidade
-                  </Link>.
+                  {t.cookies.description}
                 </p>
               </div>
             </div>

@@ -16,7 +16,7 @@ import {
 } from 'recharts';
 
 export default function FIREPage() {
-  const { t, formatCurrency } = useTranslation();
+  const { formatCurrency } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'sim' | 'learn'>('sim');
   const [stats, setStats] = useState({
@@ -62,64 +62,33 @@ export default function FIREPage() {
         let totalVault = 0;
 
         // Calcular total real do cofre (Investimentos + Emergência)
-        // IMPORTANTE: amount_cents positivo = depósito (aumenta), negativo = resgate (diminui)
         transactions.forEach((t: any) => {
           const cat = catMap[t.category_id];
           if (cat && cat.vault_type !== 'none') {
-            if (t.amount_cents > 0) {
-              // Depósito: adicionar valor
-              totalVault += t.amount_cents / 100;
-            } else {
-              // Resgate: subtrair valor absoluto
-              totalVault -= Math.abs(t.amount_cents / 100);
-            }
+            totalVault += Math.abs(t.amount_cents / 100);
           }
         });
 
         thisMonthTxs.forEach((t: any) => {
           const cat = catMap[t.category_id];
+          const amount = Math.abs(t.amount_cents / 100);
           if (cat) {
-            // Backend garante sinais corretos:
-            // income: amount_cents > 0
-            // expense: amount_cents < 0
-            // Frontend confia nos sinais (sem Math.abs())
-            if (cat.type === 'income' && cat.vault_type === 'none') {
-              income += t.amount_cents / 100; // Já é positivo
-            } else if (cat.type === 'expense' && cat.vault_type === 'none') {
-              expenses += -t.amount_cents / 100; // Converte negativo para positivo
-            }
+            if (cat.type === 'income') income += amount;
+            else if (cat.vault_type === 'none') expenses += amount;
           }
         });
 
-        // Calcular saving rate com clamp e threshold
-        const MIN_INCOME_THRESHOLD = 100; // 1€ mínimo para calcular saving rate
-        let savingRate = 0;
-        if (income >= MIN_INCOME_THRESHOLD) {
-          const calculated = ((income - expenses) / income) * 100;
-          savingRate = Math.max(-100, Math.min(100, calculated)); // Clamp entre -100% e 100%
-        }
-        // Se income < threshold, savingRate = 0 (não representativo)
-
-        // Net Worth = Vault + Cash disponível
-        // Cash disponível = opening balance + income - expenses
-        // NOTA: Por enquanto, opening_balance não está disponível no frontend
-        // Quando implementado: availableCash = openingBalance + income - expenses
-        const availableCash = Math.max(0, income - expenses); // Cash disponível este mês (temporário)
-        const netWorth = totalVault + availableCash;
-        
-        // TODO: Implementar opening_balance quando disponível
-        // const openingBalance = workspace.opening_balance_cents / 100 || 0;
-        // const availableCash = Math.max(0, openingBalance + income - expenses);
+        const savingRate = income > 0 ? ((income - expenses) / income) * 100 : 0;
 
         setStats({
           monthlyIncome: income,
           monthlyExpenses: expenses,
-          netWorth: netWorth, // Vault + Cash disponível
+          netWorth: totalVault,
           savingRate: savingRate
         });
 
-        // Inicializar o património atual com vault + cash disponível
-        setSimParams(prev => ({ ...prev, currentNetWorth: netWorth }));
+        // Inicializar o património atual com o que já existe no cofre
+        setSimParams(prev => ({ ...prev, currentNetWorth: totalVault }));
       } catch (err) {
         console.error(err);
       } finally {
@@ -178,7 +147,7 @@ export default function FIREPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <div className="w-12 h-12 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.fire.processing}</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">A processar o teu destino...</p>
       </div>
     );
   }
@@ -193,13 +162,13 @@ export default function FIREPage() {
         <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-12">
           <div className="space-y-6 max-w-2xl">
             <div className="inline-flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 px-4 py-1.5 rounded-full text-orange-400 text-[10px] font-black uppercase tracking-widest">
-              <Flame size={14} className="animate-pulse" /> {t.dashboard.fire.badge}
+              <Flame size={14} className="animate-pulse" /> Ecossistema de Independência
             </div>
             <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-white uppercase leading-[0.8]">
-              {t.dashboard.fire.title} <br /><span className="text-orange-500 italic">{t.dashboard.fire.titleAccent}</span>
+              SIMULADOR <br /><span className="text-orange-500 italic">FIRE</span>
             </h1>
             <p className="text-slate-400 font-medium text-xl leading-relaxed">
-              {t.dashboard.fire.description}
+              O movimento <span className="text-white font-bold">FIRE</span> (Financial Independence, Retire Early) foca-se em acumular capital suficiente para que o teu custo de vida seja pago apenas pelos rendimentos dos teus investimentos.
             </p>
           </div>
 
@@ -208,13 +177,13 @@ export default function FIREPage() {
               onClick={() => setActiveTab('sim')}
               className={`px-8 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${activeTab === 'sim' ? 'bg-orange-600 text-white shadow-xl' : 'text-slate-500 hover:text-white'}`}
             >
-              {t.dashboard.fire.simulator}
+              Simulador
             </button>
             <button 
               onClick={() => setActiveTab('learn')}
               className={`px-8 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${activeTab === 'learn' ? 'bg-orange-600 text-white shadow-xl' : 'text-slate-500 hover:text-white'}`}
             >
-              {t.dashboard.fire.learn}
+              Aprender
             </button>
           </div>
         </div>
@@ -234,19 +203,19 @@ export default function FIREPage() {
                   <Activity size={64} className="text-orange-500" />
                 </div>
                 <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-8 flex items-center gap-2">
-                  <Rocket size={14} className="text-orange-500" /> {t.dashboard.fire.yourCurrentEngine}
+                  <Rocket size={14} className="text-orange-500" /> O Teu Motor Atual
                 </h3>
                 
                 <div className="space-y-8">
                   <div className="flex justify-between items-end">
                     <div>
-                      <p className="text-[10px] font-black uppercase text-slate-600 mb-1">{t.dashboard.fire.monthlyFlow}</p>
+                      <p className="text-[10px] font-black uppercase text-slate-600 mb-1">Fluxo Mensal (Net)</p>
                       <p className="text-3xl font-black text-white tracking-tighter">
                         {formatCurrency(stats.monthlyIncome - stats.monthlyExpenses)}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] font-black uppercase text-slate-600 mb-1">{t.dashboard.fire.savingRate}</p>
+                      <p className="text-[10px] font-black uppercase text-slate-600 mb-1">Saving Rate</p>
                       <p className="text-3xl font-black text-orange-500 tracking-tighter">{Math.round(stats.savingRate)}%</p>
                     </div>
                   </div>
@@ -259,20 +228,20 @@ export default function FIREPage() {
                   </div>
 
                   <p className="text-[10px] text-slate-500 leading-relaxed font-medium italic">
-                    💡 <span className="text-slate-300">{t.dashboard.fire.tip}</span> {t.dashboard.fire.tipText}
+                    💡 <span className="text-slate-300">Dica Zen:</span> Aumentar o teu Saving Rate em 10% pode antecipar a tua reforma em quase 5 anos.
                   </p>
                 </div>
               </div>
 
               {/* Ajustes Finos */}
               <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] space-y-10">
-                <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.fire.marketParams}</h3>
+                <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Parâmetros de Mercado</h3>
                 
                 <div className="space-y-10">
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2 group cursor-help">
-                        <label className="text-[10px] font-black uppercase text-slate-400">{t.dashboard.fire.marketReturn}</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400">Retorno do Mercado</label>
                         <Info size={12} className="text-slate-600 group-hover:text-orange-500 transition-colors" />
                       </div>
                       <span className="text-sm font-black text-white px-3 py-1 bg-white/5 rounded-lg border border-white/5">{simParams.expectedReturn}%</span>
@@ -283,13 +252,13 @@ export default function FIREPage() {
                       onChange={(e) => setSimParams({...simParams, expectedReturn: Number(e.target.value)})}
                       className="w-full accent-orange-500 cursor-pointer h-1.5 bg-white/5 rounded-full appearance-none"
                     />
-                    <p className="text-[8px] text-slate-600 font-black uppercase tracking-widest">{t.dashboard.fire.marketReturnNote}</p>
+                    <p className="text-[8px] text-slate-600 font-black uppercase tracking-widest">Média Histórica (S&P 500) ≈ 7-10%</p>
                   </div>
 
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2 group cursor-help">
-                        <label className="text-[10px] font-black uppercase text-slate-400">{t.dashboard.fire.withdrawalRate}</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400">Taxa de Levantamento (SWR)</label>
                         <Info size={12} className="text-slate-600 group-hover:text-orange-500 transition-colors" />
                       </div>
                       <span className="text-sm font-black text-white px-3 py-1 bg-white/5 rounded-lg border border-white/5">{simParams.withdrawalRate}%</span>
@@ -300,12 +269,12 @@ export default function FIREPage() {
                       onChange={(e) => setSimParams({...simParams, withdrawalRate: Number(e.target.value)})}
                       className="w-full accent-orange-500 cursor-pointer h-1.5 bg-white/5 rounded-full appearance-none"
                     />
-                    <p className="text-[8px] text-slate-600 font-black uppercase tracking-widest">{t.dashboard.fire.withdrawalRateNote}</p>
+                    <p className="text-[8px] text-slate-600 font-black uppercase tracking-widest">Padrão Conservador (Trinity Study) = 4%</p>
                   </div>
 
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-black uppercase text-slate-400">{t.dashboard.fire.accumulatedWealth}</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400">Património Acumulado</label>
                       <span className="text-sm font-black text-white px-3 py-1 bg-white/5 rounded-lg border border-white/5">{formatCurrency(simParams.currentNetWorth)}</span>
                     </div>
                     <input 
@@ -318,8 +287,8 @@ export default function FIREPage() {
 
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-black uppercase text-slate-400">{t.dashboard.fire.yourCurrentAge}</label>
-                      <span className="text-sm font-black text-white px-3 py-1 bg-white/5 rounded-lg border border-white/5">{simParams.currentAge} {t.dashboard.fire.years}</span>
+                      <label className="text-[10px] font-black uppercase text-slate-400">A tua idade atual</label>
+                      <span className="text-sm font-black text-white px-3 py-1 bg-white/5 rounded-lg border border-white/5">{simParams.currentAge} anos</span>
                     </div>
                     <input 
                       type="range" min="18" max="70"
@@ -344,25 +313,25 @@ export default function FIREPage() {
                 
                 <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-12">
                   <div className="text-center md:text-left space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.5em] text-white/60">{t.dashboard.fire.estimatedRetirementAge}</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.5em] text-white/60">Idade de Reforma Estimada</p>
                     <div className="flex items-baseline justify-center md:justify-start gap-4">
                       <h2 className="text-8xl md:text-9xl font-black text-white tracking-tighter leading-none">
                         {fireResult?.fireAge}
                       </h2>
-                      <span className="text-2xl font-black text-white/40 uppercase tracking-widest italic">{t.dashboard.fire.years}</span>
+                      <span className="text-2xl font-black text-white/40 uppercase tracking-widest italic">Anos</span>
                     </div>
                     <div className="flex flex-col md:flex-row items-center gap-3 justify-center md:justify-start">
                       <div className="flex items-center gap-2 bg-black/20 backdrop-blur-md px-6 py-2 rounded-full border border-white/10">
                         <ShieldCheck size={16} className="text-white" />
                         <p className="text-xs font-black text-white uppercase tracking-widest">
-                          {t.dashboard.fire.yearsLeft} {fireResult?.yearsToFire} {t.dashboard.fire.yearsLeftText}
+                          Faltam {fireResult?.yearsToFire} anos
                         </p>
                       </div>
                       {fireResult?.yearsSaved > 0 && (
                         <div className="flex items-center gap-2 bg-emerald-500/20 backdrop-blur-md px-6 py-2 rounded-full border border-emerald-500/20">
                           <Sparkles size={16} className="text-emerald-400" />
                           <p className="text-xs font-black text-emerald-400 uppercase tracking-widest">
-                            {t.dashboard.fire.gainedYears} {fireResult?.yearsSaved} {t.dashboard.fire.gainedYearsText}
+                            Ganhaste {fireResult?.yearsSaved} anos de vida
                           </p>
                         </div>
                       )}
@@ -371,12 +340,12 @@ export default function FIREPage() {
                   
                   <div className="flex flex-col gap-4 w-full md:w-auto">
                     <div className="bg-white/10 backdrop-blur-xl p-8 rounded-[40px] border border-white/10 text-center md:text-right min-w-[280px]">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-2">{t.dashboard.fire.fireNumber}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-2">Número FIRE (Capital Alvo)</p>
                       <p className="text-4xl font-black text-white tracking-tighter leading-none">
                         {formatCurrency(fireResult?.target)}
                       </p>
                       <div className="mt-4 pt-4 border-t border-white/10 flex flex-col items-center md:items-end">
-                        <p className="text-[10px] font-black uppercase text-white/40">{t.dashboard.fire.monthlyPerpetualIncome}</p>
+                        <p className="text-[10px] font-black uppercase text-white/40">Rendimento Mensal Perpétuo</p>
                         <p className="text-xl font-black text-white">{formatCurrency(fireResult?.monthlyFireIncome)}</p>
                       </div>
                     </div>
@@ -388,17 +357,17 @@ export default function FIREPage() {
               <div className="bg-slate-900/40 backdrop-blur-sm p-12 rounded-[56px] border border-white/5 h-[550px] relative">
                 <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6">
                   <div>
-                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-1">{t.dashboard.fire.accumulationCurve}</h3>
-                    <p className="text-xs text-slate-400 font-medium italic">{t.dashboard.fire.accumulationCurveSubtitle}</p>
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-1">Curva de Acumulação</h3>
+                    <p className="text-xs text-slate-400 font-medium italic">O poder dos juros compostos ao longo do tempo</p>
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
-                      <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t.dashboard.fire.wealth}</span>
+                      <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Património</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-px border-t border-dashed border-white/30" />
-                      <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t.dashboard.fire.fireTarget}</span>
+                      <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Objetivo FIRE</span>
                     </div>
                   </div>
                 </div>
@@ -434,8 +403,8 @@ export default function FIREPage() {
                           boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
                         }}
                         itemStyle={{ color: '#fff', fontWeight: '900', fontSize: '12px', textTransform: 'uppercase' }}
-                        formatter={(value: number) => [formatCurrency(value), t.dashboard.fire.wealth]}
-                        labelFormatter={(label) => `${t.dashboard.fire.age} ${label} ${t.dashboard.fire.yearsOld}`}
+                        formatter={(value: number) => [formatCurrency(value), 'Riqueza']}
+                        labelFormatter={(label) => `Idade: ${label} anos`}
                       />
                       <Area 
                         type="monotone" 
@@ -467,40 +436,40 @@ export default function FIREPage() {
           >
             {[
               {
-                title: t.dashboard.fire.whatIsFire,
+                title: "O que é FIRE?",
                 icon: Flame,
                 color: "text-orange-500",
-                desc: t.dashboard.fire.whatIsFireDesc
+                desc: "Financial Independence, Retire Early. É um estilo de vida que foca em poupanças extremas e investimentos agressivos para ganhar liberdade de tempo o mais cedo possível."
               },
               {
-                title: t.dashboard.fire.fireNumberTitle,
+                title: "O Número FIRE",
                 icon: Target,
                 color: "text-blue-500",
-                desc: t.dashboard.fire.fireNumberDesc
+                desc: "É o valor total que precisas de ter investido. Calcula-se multiplicando as tuas despesas anuais por 25 (assumindo a regra dos 4%)."
               },
               {
-                title: t.dashboard.fire.fourPercentRule,
+                title: "Regra dos 4% (SWR)",
                 icon: Shield,
                 color: "text-emerald-500",
-                desc: t.dashboard.fire.fourPercentRuleDesc
+                desc: "Safe Withdrawal Rate. Diz que podes levantar 4% do teu capital investido todos os anos, ajustado à inflação, sem que o dinheiro acabe em 30 anos."
               },
               {
-                title: t.dashboard.fire.biggestLeverage,
+                title: "O Maior Alavanca",
                 icon: TrendingUp,
                 color: "text-purple-500",
-                desc: t.dashboard.fire.biggestLeverageDesc
+                desc: "O teu Savings Rate (Taxa de Poupança) é o fator mais importante. Quanto maior a percentagem do teu rendimento que poupas, mais rápido atinges a meta."
               },
               {
-                title: t.dashboard.fire.compoundInterest,
+                title: "Juros Compostos",
                 icon: Sparkles,
                 color: "text-amber-500",
-                desc: t.dashboard.fire.compoundInterestDesc
+                desc: "O simulador assume que reinvestes os teus lucros. Com o tempo, os teus ganhos começam a gerar os seus próprios ganhos - é aqui que a magia acontece."
               },
               {
-                title: t.dashboard.fire.turningPoint,
+                title: "O Ponto de Viragem",
                 icon: Zap,
                 color: "text-red-500",
-                desc: t.dashboard.fire.turningPointDesc
+                desc: "Atinges o FIRE quando os teus rendimentos passivos cobrem 100% das tuas despesas mensais. O trabalho passa a ser opcional."
               }
             ].map((item, i) => (
               <motion.div 
@@ -530,9 +499,9 @@ export default function FIREPage() {
           <Lightbulb size={32} />
         </div>
         <div className="space-y-2 flex-1">
-          <h4 className="text-sm font-black uppercase tracking-widest text-white">{t.dashboard.fire.importantNote}</h4>
+          <h4 className="text-sm font-black uppercase tracking-widest text-white">Nota Importante de Planeamento</h4>
           <p className="text-slate-400 text-sm font-medium leading-relaxed">
-            {t.dashboard.fire.importantNoteText}
+            Este simulador é uma ferramenta educativa. Os resultados baseiam-se em médias históricas e não garantem retornos futuros. Recomendamos que uses este valor como um guia para a tua <span className="text-orange-500 font-bold">Jornada Zen</span>, mantendo sempre uma margem de segurança no teu Fundo de Emergência.
           </p>
         </div>
       </motion.div>

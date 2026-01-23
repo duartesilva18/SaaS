@@ -29,7 +29,7 @@ const COLORS = [
 ];
 
 export default function GoalsPage() {
-  const { t, formatCurrency } = useTranslation();
+  const { formatCurrency } = useTranslation();
   const [goals, setGoals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowNotifications] = useState(false);
@@ -65,27 +65,27 @@ export default function GoalsPage() {
     try {
       if (editingGoal) {
         await api.patch(`/goals/${editingGoal.id}`, formData);
-        setToast({ show: true, message: t.dashboard.goals.updateSuccess, type: 'success' });
+        setToast({ show: true, message: 'Meta atualizada com sucesso!', type: 'success' });
       } else {
         await api.post('/goals/', formData);
-        setToast({ show: true, message: t.dashboard.goals.createSuccess, type: 'success' });
+        setToast({ show: true, message: 'Nova meta criada!', type: 'success' });
       }
       setShowNotifications(false);
       setEditingGoal(null);
       fetchGoals();
     } catch (err) {
-      setToast({ show: true, message: t.dashboard.goals.saveError, type: 'error' });
+      setToast({ show: true, message: 'Erro ao guardar meta.', type: 'error' });
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm(t.dashboard.goals.deleteConfirm)) return;
+    if (!confirm('Tens a certeza que queres eliminar esta meta?')) return;
     try {
       await api.delete(`/goals/${id}`);
-      setToast({ show: true, message: t.dashboard.goals.deleteSuccess, type: 'success' });
+      setToast({ show: true, message: 'Meta eliminada.', type: 'success' });
       fetchGoals();
     } catch (err) {
-      setToast({ show: true, message: t.dashboard.goals.deleteError, type: 'error' });
+      setToast({ show: true, message: 'Erro ao eliminar.', type: 'error' });
     }
   };
 
@@ -106,7 +106,7 @@ export default function GoalsPage() {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.goals.loading}</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">A sintonizar metas...</p>
       </div>
     );
   }
@@ -118,13 +118,13 @@ export default function GoalsPage() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
           <div className="space-y-4">
             <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full text-blue-400 text-[10px] font-black uppercase tracking-widest">
-              <Trophy size={14} /> {t.dashboard.goals.badge}
+              <Trophy size={14} /> Conquista o Amanhã
             </div>
             <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">
-              {t.dashboard.goals.title.split(' ').slice(0, -1).join(' ')} <span className="text-blue-500 italic">{t.dashboard.goals.title.split(' ').slice(-1)[0]}</span>
+              Metas de <span className="text-blue-500 italic">Poupança</span>
             </h1>
             <p className="text-slate-500 font-medium max-w-xl italic text-lg">
-              "{t.dashboard.goals.subtitle}" - {t.dashboard.goals.subtitleQuote}
+              "Um objetivo sem um plano é apenas um desejo." - Define o teu rumo.
             </p>
           </div>
 
@@ -143,7 +143,7 @@ export default function GoalsPage() {
             }}
             className="group flex items-center gap-3 px-8 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-xs transition-all shadow-2xl shadow-blue-600/30 active:scale-95 cursor-pointer"
           >
-            {t.dashboard.goals.newGoal} <Plus size={18} />
+            Nova Meta <Plus size={18} />
           </button>
         </div>
       </section>
@@ -185,18 +185,18 @@ export default function GoalsPage() {
                 <div>
                   <h3 className="text-xl font-black text-white uppercase tracking-tight mb-1">{goal.name}</h3>
                   <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <Calendar size={12} /> {new Date(goal.target_date).toLocaleDateString('pt-PT')} • {daysLeft > 0 ? `${daysLeft} ${t.dashboard.goals.daysRemaining}` : t.dashboard.goals.dateReached}
+                    <Calendar size={12} /> {new Date(goal.target_date).toLocaleDateString('pt-PT')} • {daysLeft > 0 ? `${daysLeft} dias restantes` : 'Data atingida'}
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <div className="flex items-end justify-between">
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">{t.dashboard.goals.accumulated}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Acumulado</p>
                       <p className="text-2xl font-black text-white tracking-tighter">{formatCurrency(goal.current_amount_cents / 100)}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">{t.dashboard.goals.target}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Objetivo</p>
                       <p className="text-sm font-black text-slate-400">{formatCurrency(goal.target_amount_cents / 100)}</p>
                     </div>
                   </div>
@@ -211,8 +211,8 @@ export default function GoalsPage() {
                   </div>
                   
                   <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
-                    <span style={{ color: goal.color_hex }}>{Math.round(progress)}% {t.dashboard.goals.completed}</span>
-                    <span className="text-slate-600">{formatCurrency((goal.target_amount_cents - goal.current_amount_cents) / 100)} {t.dashboard.goals.remaining}</span>
+                    <span style={{ color: goal.color_hex }}>{Math.round(progress)}% Concluído</span>
+                    <span className="text-slate-600">{formatCurrency((goal.target_amount_cents - goal.current_amount_cents) / 100)} em falta</span>
                   </div>
                 </div>
               </div>
@@ -226,8 +226,8 @@ export default function GoalsPage() {
               <Target size={40} />
             </div>
             <div className="space-y-2">
-              <p className="text-xl font-black text-white uppercase tracking-tight">{t.dashboard.goals.emptyMap}</p>
-              <p className="text-slate-500 font-medium">{t.dashboard.goals.emptyMapSubtitle}</p>
+              <p className="text-xl font-black text-white uppercase tracking-tight">O teu mapa está vazio</p>
+              <p className="text-slate-500 font-medium">Cria a tua primeira meta de poupança para começar a jornada.</p>
             </div>
           </div>
         )}
@@ -253,9 +253,9 @@ export default function GoalsPage() {
               <div className="flex items-center justify-between mb-10">
                 <div>
                   <h2 className="text-3xl font-black text-white uppercase tracking-tighter">
-                    {editingGoal ? t.dashboard.goals.edit : t.dashboard.goals.new} <span className="text-blue-500 italic">{t.dashboard.goals.goal}</span>
+                    {editingGoal ? 'Editar' : 'Nova'} <span className="text-blue-500 italic">Meta</span>
                   </h2>
-                  <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">{t.dashboard.goals.drawYourFuture}</p>
+                  <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Desenha o teu futuro</p>
                 </div>
                 <button onClick={() => setShowNotifications(false)} className="p-3 hover:bg-white/5 rounded-full text-slate-500 transition-colors cursor-pointer">
                   <X size={24} />
@@ -265,19 +265,19 @@ export default function GoalsPage() {
               <form onSubmit={handleSubmit} className="space-y-8">
                 <div className="space-y-6">
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">{t.dashboard.goals.goalName}</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Nome do Objetivo</label>
                     <input 
                       type="text" required
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-black uppercase tracking-widest focus:border-blue-500 outline-none transition-all placeholder:text-slate-700"
-                      placeholder={t.dashboard.goals.goalNamePlaceholder}
+                      placeholder="Ex: Viagem ao Japão"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-6">
                     <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">{t.dashboard.goals.targetAmount}</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Valor Alvo (Cent)</label>
                       <input 
                         type="number" required
                         value={formData.target_amount_cents}
@@ -286,7 +286,7 @@ export default function GoalsPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">{t.dashboard.goals.alreadySaved}</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Já Poupado (Cent)</label>
                       <input 
                         type="number" required
                         value={formData.current_amount_cents}
@@ -297,7 +297,7 @@ export default function GoalsPage() {
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">{t.dashboard.goals.deadline}</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Data Limite</label>
                     <input 
                       type="date" required
                       value={formData.target_date}
@@ -307,7 +307,7 @@ export default function GoalsPage() {
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 block ml-2">{t.dashboard.goals.iconAndColor}</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 block ml-2">Ícone & Cor</label>
                     <div className="flex flex-wrap gap-3 mb-6">
                       {ICONS.map((item) => (
                         <button
@@ -336,7 +336,7 @@ export default function GoalsPage() {
                   type="submit"
                   className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-[0.3em] text-xs transition-all shadow-2xl shadow-blue-600/20 active:scale-95 flex items-center justify-center gap-3 cursor-pointer"
                 >
-                  {editingGoal ? t.dashboard.goals.saveChanges : t.dashboard.goals.activateGoal} <Check size={18} />
+                  {editingGoal ? 'Guardar Alterações' : 'Ativar Meta'} <Check size={18} />
                 </button>
               </form>
             </motion.div>

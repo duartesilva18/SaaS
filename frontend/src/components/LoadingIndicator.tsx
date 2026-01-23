@@ -4,10 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
-import { useTranslation } from '@/lib/LanguageContext';
 
 export default function LoadingIndicator() {
-  const { t } = useTranslation();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
@@ -30,7 +28,7 @@ export default function LoadingIndicator() {
         >
           <Loader2 className="animate-spin text-blue-400" size={16} />
           <span className="text-[10px] font-black uppercase tracking-widest text-blue-100">
-            {t.dashboard.loading.loading}
+            Carregando...
           </span>
         </motion.div>
       )}

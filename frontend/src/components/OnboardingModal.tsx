@@ -163,7 +163,7 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
               {/* Phone Number */}
               <div className="md:col-span-2 space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-2">
-                  Número de Telegram (para registar despesas)
+                  Número de WhatsApp (para registar despesas)
                 </label>
                 <div className="flex gap-3">
                   <select

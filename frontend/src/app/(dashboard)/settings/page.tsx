@@ -13,7 +13,7 @@ import api from '@/lib/api';
 import Toast from '@/components/Toast';
 
 export default function SettingsPage() {
-  const { t, setCurrency, language, setLanguage, availableLanguages } = useTranslation();
+  const { t, setCurrency, language, setLanguage } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -121,7 +121,7 @@ export default function SettingsPage() {
 
   const handlePortal = async () => {
     if (isSimulated) {
-      alert(t.dashboard.settings.simulationMode);
+      alert("Estás em modo de simulação. O portal Stripe só está disponível para subscrições reais.");
       return;
     }
     try {
@@ -134,7 +134,7 @@ export default function SettingsPage() {
     } catch (err: any) {
       console.error('Erro ao abrir portal Stripe:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Erro ao abrir portal de faturação.';
-      alert(errorMsg || t.dashboard.settings.portalError);
+      alert(errorMsg);
     }
   };
 
@@ -145,7 +145,7 @@ export default function SettingsPage() {
       const dataStr = JSON.stringify(res.data, null, 2);
       const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
       
-      const exportFileDefaultName = `finly_export_${new Date().toISOString().split('T')[0]}.json`;
+      const exportFileDefaultName = `finanzen_export_${new Date().toISOString().split('T')[0]}.json`;
       
       const linkElement = document.createElement('a');
       linkElement.setAttribute('href', dataUri);
@@ -153,7 +153,7 @@ export default function SettingsPage() {
       linkElement.click();
     } catch (err) {
       console.error(err);
-      alert(t.dashboard.settings.exportError);
+      alert('Erro ao exportar dados.');
     } finally {
       setExporting(false);
     }
@@ -168,7 +168,7 @@ export default function SettingsPage() {
       window.location.href = '/';
     } catch (err) {
       console.error(err);
-      alert(t.dashboard.settings.deleteError);
+      alert('Erro ao eliminar a conta.');
       setDeleting(false);
       setShowDeleteConfirm(false);
     }
@@ -323,14 +323,11 @@ export default function SettingsPage() {
                       <Globe size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within/field:text-indigo-500 transition-colors pointer-events-none z-10" />
                       <select 
                         value={language}
-                        onChange={e => setLanguage(e.target.value as any)}
+                        onChange={e => setLanguage(e.target.value as 'pt' | 'en')}
                         className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-10 text-sm focus:outline-none focus:border-indigo-500 transition-all text-white font-medium appearance-none cursor-pointer"
                       >
-                        {Object.values(availableLanguages).map((lang) => (
-                          <option key={lang.code} value={lang.code} className="bg-slate-900">
-                            {lang.flag} {lang.nativeName} ({lang.locale})
-                          </option>
-                        ))}
+                        <option value="pt" className="bg-slate-900">Português (PT)</option>
+                        <option value="en" className="bg-slate-900">English (US)</option>
                       </select>
                     </div>
                   </div>
@@ -364,7 +361,7 @@ export default function SettingsPage() {
                       {t.dashboard.settings.preferences.marketing}
                     </p>
                     <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">
-                      {t.dashboard.settings.marketingChannels}
+                      Email • SMS • WhatsApp
                     </p>
                   </div>
                 </div>
@@ -396,12 +393,12 @@ export default function SettingsPage() {
                 <Send size={20} />
               </div>
               <h2 className="text-lg font-black tracking-tighter text-white uppercase tracking-widest text-[11px]">
-                {t.dashboard.settings.telegramCard.title}
+                Bot Telegram
               </h2>
             </div>
 
             <p className="text-slate-400 text-sm font-medium mb-8 leading-relaxed italic">
-              {t.dashboard.settings.telegramCard.description}
+              Regista despesas e envia fotos de recibos diretamente pelo Telegram. A IA faz o resto.
             </p>
 
             <a 
@@ -410,7 +407,7 @@ export default function SettingsPage() {
               rel="noopener noreferrer"
               className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              {t.dashboard.settings.telegramCard.link} <ExternalLink size={14} />
+              Associar Telegram <ExternalLink size={14} />
             </a>
           </section>
 
@@ -428,7 +425,7 @@ export default function SettingsPage() {
             </div>
 
             <p className="text-slate-500 text-sm font-medium mb-8 leading-relaxed italic">
-              {t.dashboard.settings.billingCard.description}
+              Acede ao portal oficial do Stripe para gerir as tuas faturas e planos com segurança máxima.
             </p>
 
             <button 
@@ -472,8 +469,8 @@ export default function SettingsPage() {
           {/* Support Notice */}
           <div className="p-8 bg-blue-600/5 border border-blue-500/10 rounded-[32px] text-center shadow-xl group hover:bg-blue-600/10 transition-colors">
             <BellRing className="text-blue-500/60 mx-auto mb-4 group-hover:scale-110 transition-transform" size={32} />
-            <h4 className="text-white font-black tracking-tight mb-2 uppercase tracking-widest text-[10px] opacity-60">{t.dashboard.settings.needHelp}</h4>
-            <p className="text-slate-500 text-xs font-medium italic">{t.dashboard.settings.supportAvailable}</p>
+            <h4 className="text-white font-black tracking-tight mb-2 uppercase tracking-widest text-[10px] opacity-60">Precisas de ajuda?</h4>
+            <p className="text-slate-500 text-xs font-medium italic">O nosso suporte está disponível 24/7 via WhatsApp.</p>
           </div>
         </div>
       </div>

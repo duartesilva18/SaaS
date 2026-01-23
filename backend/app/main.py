@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, categories, transactions, stripe as stripe_routes, insights, recurring, admin, goals, dashboard
+from .routes import auth, categories, transactions, stripe as stripe_routes, insights, recurring, admin, goals
 from .webhooks import stripe as stripe_webhooks, whatsapp as whatsapp_webhooks, telegram as telegram_webhooks
 from .webhooks.telegram import setup_bot_commands
 from .models.database import Base, SystemSetting
@@ -29,7 +29,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger('FinlyAPI')
+logger = logging.getLogger('FinanZenAPI')
 
 # Criar tabelas no banco de dados
 Base.metadata.create_all(bind=engine)
@@ -131,7 +131,7 @@ try:
 except Exception as e:
     logger.error(f"Erro na migração da tabela category_mapping_cache: {e}")
 
-app = FastAPI(title='Finly - Gestão Financeira Pessoal API')
+app = FastAPI(title='FinanZen - Gestão Financeira Pessoal API')
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -162,7 +162,6 @@ app.include_router(insights.router)
 app.include_router(recurring.router)
 app.include_router(admin.router)
 app.include_router(goals.router)
-app.include_router(dashboard.router)
 app.include_router(stripe_routes.router)
 app.include_router(stripe_webhooks.router)
 app.include_router(whatsapp_webhooks.router)

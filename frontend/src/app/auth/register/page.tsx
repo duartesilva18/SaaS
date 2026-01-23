@@ -23,10 +23,21 @@ const MagneticButton = ({ children, className, onClick, disabled, type = "button
   );
 };
 
-// registerBenefits agora vem das traduções
+const registerBenefits = [
+  {
+    title: "Comece a sua nova vida.",
+    quote: "O melhor momento para plantar uma árvore foi há 20 anos. O segundo melhor momento é agora mesmo.",
+    stat: "Setup em 10 segundos • Sem cartões"
+  },
+  {
+    title: "Liberdade ao seu alcance.",
+    quote: "Paz mental não tem preço. Ver o seu dinheiro crescer todos os meses é uma sensação indescritível.",
+    stat: "+2.800 Portugueses já aderiram"
+  }
+];
 
 export default function RegisterPage() {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -36,14 +47,12 @@ export default function RegisterPage() {
   const [isShaking, setIsShaking] = useState(false);
   const router = useRouter();
 
-  const registerBenefits = t.auth.register.registerBenefits;
-
   useEffect(() => {
     const interval = setInterval(() => {
       setBenefitIndex((prev) => (prev + 1) % registerBenefits.length);
     }, 7000);
     return () => clearInterval(interval);
-  }, [registerBenefits.length]);
+  }, []);
 
   const validateEmail = (email: string) => {
     return String(email).toLowerCase().match(/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/);
@@ -68,8 +77,7 @@ export default function RegisterPage() {
     try {
       await api.post('/auth/register', {
         email,
-        password,
-        language
+        password
       });
       
       confetti({
@@ -103,7 +111,7 @@ export default function RegisterPage() {
           className="absolute top-12 left-12 lg:left-20 flex items-center gap-2 text-slate-500 hover:text-white transition-all text-xs font-black uppercase tracking-[0.3em] group cursor-pointer"
         >
           <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-          {t.auth.register.backToHome}
+          Voltar ao Início
         </Link>
 
         <div className="relative min-h-[400px] flex flex-col justify-center">
@@ -119,7 +127,7 @@ export default function RegisterPage() {
                 <Sparkles size={32} className="lg:size-[40px]" />
               </div>
               <h2 className="text-5xl lg:text-7xl font-black tracking-tighter leading-[0.9] mb-6 lg:mb-8">
-                {registerBenefits[benefitIndex].title.split(' ').map((word: string, i: number) => (
+                {registerBenefits[benefitIndex].title.split(' ').map((word, i) => (
                   <span key={i} className={i % 2 === 1 ? "text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-400 italic font-black" : ""}>
                     {word}{' '}
                   </span>
@@ -130,10 +138,10 @@ export default function RegisterPage() {
               </p>
               <div className="grid grid-cols-2 gap-4 lg:gap-6 mb-8 lg:mb-12">
                 {[
-                  { i: Zap, t: t.auth.register.benefits.instant, c: "text-amber-500" },
-                  { i: Heart, t: t.auth.register.benefits.noStress, c: "text-rose-500" },
-                  { i: ShieldCheck, t: t.auth.register.benefits.privacy, c: "text-blue-500" },
-                  { i: Star, t: t.auth.register.benefits.guarantee, c: "text-emerald-500" }
+                  { i: Zap, t: "Instantâneo", c: "text-amber-500" },
+                  { i: Heart, t: "Sem Stress", c: "text-rose-500" },
+                  { i: ShieldCheck, t: "Privacidade", c: "text-blue-500" },
+                  { i: Star, t: "Garantia", c: "text-emerald-500" }
                 ].map((item, idx) => (
                   <div key={idx} className="bg-slate-900/60 border border-slate-800 p-4 lg:p-6 rounded-[24px] lg:rounded-[32px] group hover:border-emerald-500/30 transition-all">
                     <item.i size={20} className={`${item.c} mb-3 lg:mb-4 lg:size-[24px]`} />
@@ -152,7 +160,7 @@ export default function RegisterPage() {
             </motion.div>
           </AnimatePresence>
           <div className="flex gap-2 mt-12 lg:mt-16">
-            {registerBenefits.map((_: any, i: number) => (
+            {registerBenefits.map((_, i) => (
               <div
                 key={i}
                 className={`h-1.5 transition-all duration-700 rounded-full ${i === benefitIndex ? 'w-12 lg:w-16 bg-emerald-500' : 'w-3 lg:w-4 bg-slate-800'}`}
@@ -169,7 +177,7 @@ export default function RegisterPage() {
             className="flex items-center gap-2 text-slate-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-[0.3em] cursor-pointer"
           >
             <ChevronLeft size={14} />
-            {t.auth.register.back}
+            Voltar
           </Link>
         </div>
 
@@ -221,7 +229,7 @@ export default function RegisterPage() {
                     value={email}
                     onChange={(e) => { setEmail(e.target.value); if (error) setError(''); }}
                     className={`w-full bg-slate-950/50 border rounded-[24px] py-5 lg:py-6 pl-14 pr-5 text-sm lg:text-base focus:outline-none transition-all placeholder:text-slate-800 font-medium ${error && !validateEmail(email) ? 'border-red-500/50 bg-red-500/5' : 'border-slate-800 focus:border-emerald-500'}`}
-                    placeholder={t.auth.register.emailPlaceholder}
+                    placeholder="o-teu-melhor@email.com"
                     required
                   />
                   {email && validateEmail(email) && !error && (
@@ -282,14 +290,7 @@ export default function RegisterPage() {
               <div className="flex items-start gap-3 px-2 py-2">
                 <ShieldCheck size={18} className="text-emerald-500 shrink-0 mt-0.5 lg:size-[20px]" />
                 <p className="text-[9px] lg:text-[10px] text-slate-500 leading-relaxed uppercase font-black tracking-widest">
-                  {t.auth.register.termsText}{' '}
-                  <Link href="/terms" className="text-blue-400 hover:text-blue-300 underline">
-                    {t.auth.register.termsLink}
-                  </Link>
-                  {' '}{t.auth.register.and}{' '}
-                  <Link href="/privacy" className="text-blue-400 hover:text-blue-300 underline">
-                    {t.auth.register.privacyLink}
-                  </Link>.
+                  {t.auth.register.terms}
                 </p>
               </div>
 
@@ -326,7 +327,7 @@ export default function RegisterPage() {
 
       <div className="absolute bottom-8 lg:bottom-12 right-12 text-[8px] lg:text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] lg:tracking-[0.5em] opacity-50 flex items-center gap-2 lg:gap-3 whitespace-nowrap">
         <ShieldCheck size={12} className="lg:size-[14px]" />
-        {t.auth.register.securePrivate}
+        100% Secure & Private
       </div>
     </div>
   );

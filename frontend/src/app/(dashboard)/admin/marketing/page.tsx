@@ -619,7 +619,7 @@ export default function MarketingAdminPage() {
                   {/* Metadata */}
                   <div className="bg-white/5 border border-white/5 rounded-2xl p-6 space-y-2">
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                      <span className="text-slate-600">De:</span> Finly Portugal <span className="text-blue-500/50 font-medium italic">&lt;noreply@finly.pt&gt;</span>
+                      <span className="text-slate-600">De:</span> FinanZen Portugal <span className="text-blue-500/50 font-medium italic">&lt;noreply@finanzen.pt&gt;</span>
                     </p>
                     <p className="text-sm font-black text-white">
                       <span className="text-slate-500 text-[10px] uppercase tracking-widest mr-2">Assunto:</span> {subject}
@@ -631,7 +631,7 @@ export default function MarketingAdminPage() {
                     {/* Header */}
                     <div className="bg-[#020617] p-10 text-center border-b border-[#1e293b]">
                       <div className="text-2xl font-black text-white tracking-tighter">
-                        Finly
+                        Finan<span className="text-blue-500 italic">Zen</span>
                       </div>
                     </div>
 
@@ -642,14 +642,14 @@ export default function MarketingAdminPage() {
                       
                       <div className="mt-12 pt-10 border-t border-[#1e293b]">
                         <p className="text-[10px] text-[#475569] uppercase font-black tracking-[3px]">
-                          Recebeu este email porque aceitou as comunicações de marketing do Finly.
+                          Recebeu este email porque aceitou as comunicações de marketing do FinanZen.
                         </p>
                       </div>
                     </div>
 
                     {/* Footer */}
                     <div className="bg-[#020617] p-8 text-center text-[#475569] text-[10px] font-black uppercase tracking-[3px] border-t border-[#1e293b]">
-                      Finly Portugal © 2026
+                      FinanZen Portugal © 2026
                     </div>
                   </div>
                 </div>

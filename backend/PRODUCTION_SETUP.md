@@ -1,4 +1,4 @@
-# 🚀 Guia de Configuração para Produção - Finly
+# 🚀 Guia de Configuração para Produção - FinanZen
 
 ## ⚠️ IMPORTANTE: Variáveis de Ambiente Obrigatórias
 
