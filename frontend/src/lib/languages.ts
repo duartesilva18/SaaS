@@ -1,118 +1,72 @@
-/**
- * Configuração dinâmica de idiomas suportados
- * Para adicionar um novo idioma:
- * 1. Adicione o código do idioma aqui
- * 2. Adicione as traduções em translations.ts
- * 3. O sistema irá automaticamente reconhecê-lo
- */
+// Tipos de idiomas e moedas suportados
+export type LanguageCode = 'pt' | 'en' | 'es';
+export type CurrencyCode = 'EUR' | 'USD' | 'BRL' | 'GBP';
 
+// Idiomas suportados
+export const SUPPORTED_LANGUAGES: LanguageCode[] = ['pt', 'en', 'es'];
+
+// Moedas suportadas
+export const SUPPORTED_CURRENCIES: CurrencyCode[] = ['EUR', 'USD', 'BRL', 'GBP'];
+
+// Idioma padrão
+export const DEFAULT_LANGUAGE: LanguageCode = 'pt';
+
+// Configuração de idiomas
 export interface LanguageConfig {
-  code: string; // Código ISO 639-1 (pt, en, fr, es, etc.)
-  name: string; // Nome do idioma no próprio idioma
-  nativeName: string; // Nome nativo do idioma
-  locale: string; // Locale para formatação (pt-PT, en-US, fr-FR, etc.)
-  flag: string; // Emoji da bandeira
-  currency: string; // Moeda padrão para este idioma
+  code: LanguageCode;
+  name: string;
+  locale: string;
+  currency: CurrencyCode;
 }
 
-export const SUPPORTED_LANGUAGES: Record<string, LanguageConfig> = {
+export const LANGUAGE_CONFIGS: Record<LanguageCode, LanguageConfig> = {
   pt: {
     code: 'pt',
     name: 'Português',
-    nativeName: 'Português',
     locale: 'pt-PT',
-    flag: '🇵🇹',
     currency: 'EUR',
   },
   en: {
     code: 'en',
     name: 'English',
-    nativeName: 'English',
     locale: 'en-US',
-    flag: '🇬🇧',
     currency: 'USD',
   },
-  // Adicione novos idiomas aqui seguindo este padrão:
-  // Para ativar um idioma, descomente o bloco correspondente E adicione as traduções em translations.ts
-  // fr: {
-  //   code: 'fr',
-  //   name: 'French',
-  //   nativeName: 'Français',
-  //   locale: 'fr-FR',
-  //   flag: '🇫🇷',
-  //   currency: 'EUR',
-  // },
-  // es: {
-  //   code: 'es',
-  //   name: 'Spanish',
-  //   nativeName: 'Español',
-  //   locale: 'es-ES',
-  //   flag: '🇪🇸',
-  //   currency: 'EUR',
-  // },
-  // Exemplo para adicionar mais idiomas:
-  // de: {
-  //   code: 'de',
-  //   name: 'German',
-  //   nativeName: 'Deutsch',
-  //   locale: 'de-DE',
-  //   flag: '🇩🇪',
-  //   currency: 'EUR',
-  // },
-  // it: {
-  //   code: 'it',
-  //   name: 'Italian',
-  //   nativeName: 'Italiano',
-  //   locale: 'it-IT',
-  //   flag: '🇮🇹',
-  //   currency: 'EUR',
-  // },
+  es: {
+    code: 'es',
+    name: 'Español',
+    locale: 'es-ES',
+    currency: 'EUR',
+  },
 };
 
-export const DEFAULT_LANGUAGE = 'pt';
-
-export const SUPPORTED_CURRENCIES = ['EUR', 'USD', 'BRL'] as const;
-
-export type LanguageCode = keyof typeof SUPPORTED_LANGUAGES;
-export type CurrencyCode = typeof SUPPORTED_CURRENCIES[number];
-
-/**
- * Obtém a configuração de um idioma
- */
-export function getLanguageConfig(code: string): LanguageConfig | undefined {
-  return SUPPORTED_LANGUAGES[code];
-}
-
-/**
- * Obtém o idioma padrão baseado no browser
- */
+// Detectar idioma do browser
 export function getBrowserLanguage(): LanguageCode {
-  if (typeof window === 'undefined') return DEFAULT_LANGUAGE;
+  if (typeof window === 'undefined') {
+    return DEFAULT_LANGUAGE;
+  }
+
+  const browserLang = navigator.language || (navigator as any).userLanguage;
   
-  const browserLang = navigator.language.toLowerCase();
+  // Extrair código de idioma (ex: 'pt-PT' -> 'pt')
+  const langCode = browserLang.split('-')[0].toLowerCase() as LanguageCode;
   
-  // Verifica se o idioma do browser está suportado
-  for (const [code, config] of Object.entries(SUPPORTED_LANGUAGES)) {
-    if (browserLang.startsWith(code)) {
-      return code as LanguageCode;
-    }
+  // Verificar se é suportado
+  if (isLanguageSupported(langCode)) {
+    return langCode;
   }
   
   // Fallback para idioma padrão
   return DEFAULT_LANGUAGE;
 }
 
-/**
- * Obtém todos os idiomas suportados como array
- */
-export function getSupportedLanguages(): LanguageConfig[] {
-  return Object.values(SUPPORTED_LANGUAGES);
+// Verificar se idioma é suportado
+export function isLanguageSupported(lang: string): lang is LanguageCode {
+  return SUPPORTED_LANGUAGES.includes(lang as LanguageCode);
 }
 
-/**
- * Verifica se um idioma está suportado
- */
-export function isLanguageSupported(code: string): code is LanguageCode {
-  return code in SUPPORTED_LANGUAGES;
+// Obter configuração de idioma
+export function getLanguageConfig(lang: LanguageCode): LanguageConfig | undefined {
+  return LANGUAGE_CONFIGS[lang];
 }
 
