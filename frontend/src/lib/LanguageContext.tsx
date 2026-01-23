@@ -2,67 +2,120 @@
 
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo } from 'react';
 import { translations } from './translations';
-
-type Language = 'pt' | 'en';
-type Currency = 'EUR' | 'USD' | 'BRL';
+import { 
+  LanguageCode, 
+  CurrencyCode, 
+  SUPPORTED_LANGUAGES, 
+  SUPPORTED_CURRENCIES,
+  DEFAULT_LANGUAGE,
+  getBrowserLanguage,
+  isLanguageSupported,
+  getLanguageConfig,
+} from './languages';
 
 interface LanguageContextType {
-  language: Language;
-  setLanguage: (lang: Language) => void;
-  currency: Currency;
-  setCurrency: (curr: Currency) => void;
-  t: typeof translations.pt;
+  language: LanguageCode;
+  setLanguage: (lang: LanguageCode) => void;
+  currency: CurrencyCode;
+  setCurrency: (curr: CurrencyCode) => void;
+  t: typeof translations[LanguageCode];
   formatCurrency: (amount: number) => string;
+  availableLanguages: typeof SUPPORTED_LANGUAGES;
+  availableCurrencies: typeof SUPPORTED_CURRENCIES;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>('pt');
-  const [currency, setCurrencyState] = useState<Currency>('EUR');
+  const [language, setLanguageState] = useState<LanguageCode>(DEFAULT_LANGUAGE);
+  const [currency, setCurrencyState] = useState<CurrencyCode>('EUR');
 
   useEffect(() => {
+    // Carregar idioma salvo ou detectar do browser
     const savedLang = localStorage.getItem('language');
-    const savedCurrency = localStorage.getItem('currency');
-
-    if (savedLang && (savedLang === 'pt' || savedLang === 'en')) {
+    if (savedLang && isLanguageSupported(savedLang)) {
       setLanguageState(savedLang);
     } else {
-      const browserLang = navigator.language.toLowerCase();
-      const defaultLang = browserLang.startsWith('pt') ? 'pt' : 'en';
-      setLanguageState(defaultLang);
-      localStorage.setItem('language', defaultLang);
+      const browserLang = getBrowserLanguage();
+      setLanguageState(browserLang);
+      localStorage.setItem('language', browserLang);
     }
 
-    if (savedCurrency && (savedCurrency === 'EUR' || savedCurrency === 'USD' || savedCurrency === 'BRL')) {
-      setCurrencyState(savedCurrency);
+    // Carregar moeda salva ou usar padrão do idioma
+    const savedCurrency = localStorage.getItem('currency');
+    if (savedCurrency && SUPPORTED_CURRENCIES.includes(savedCurrency as CurrencyCode)) {
+      setCurrencyState(savedCurrency as CurrencyCode);
+    } else {
+      // Usar moeda padrão do idioma selecionado
+      const langConfig = getLanguageConfig(language);
+      if (langConfig) {
+        setCurrencyState(langConfig.currency as CurrencyCode);
+      }
     }
   }, []);
 
-  const setLanguage = useCallback((lang: Language) => {
+  const setLanguage = useCallback((lang: LanguageCode) => {
+    if (!isLanguageSupported(lang)) {
+      console.warn(`Idioma não suportado: ${lang}`);
+      return;
+    }
     setLanguageState(lang);
     localStorage.setItem('language', lang);
+    
+    // Atualizar moeda para o padrão do novo idioma (opcional)
+    const langConfig = getLanguageConfig(lang);
+    if (langConfig) {
+      const currentCurrency = localStorage.getItem('currency');
+      // Só atualiza se o utilizador não tiver uma moeda salva
+      if (!currentCurrency) {
+        setCurrencyState(langConfig.currency as CurrencyCode);
+      }
+    }
   }, []);
 
-  const setCurrency = useCallback((curr: Currency) => {
+  const setCurrency = useCallback((curr: CurrencyCode) => {
+    if (!SUPPORTED_CURRENCIES.includes(curr)) {
+      console.warn(`Moeda não suportada: ${curr}`);
+      return;
+    }
     setCurrencyState(curr);
     localStorage.setItem('currency', curr);
   }, []);
 
   const formatCurrency = useCallback((amount: number) => {
-    const locale = language === 'pt' ? 'pt-PT' : 'en-US';
+    const langConfig = getLanguageConfig(language);
+    const locale = langConfig?.locale || 'pt-PT';
+    
     // Para Real, usamos pt-BR para garantir o símbolo R$ e formatação brasileira
     const finalLocale = currency === 'BRL' ? 'pt-BR' : locale;
+    
     return new Intl.NumberFormat(finalLocale, {
       style: 'currency',
       currency: currency,
     }).format(amount);
   }, [language, currency]);
 
-  const t = useMemo(() => translations[language], [language]);
+  // Garantir que sempre temos traduções válidas
+  const t = useMemo(() => {
+    if (translations[language]) {
+      return translations[language];
+    }
+    // Fallback para idioma padrão se traduções não existirem
+    console.warn(`Traduções não encontradas para ${language}, usando ${DEFAULT_LANGUAGE}`);
+    return translations[DEFAULT_LANGUAGE];
+  }, [language]);
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, currency, setCurrency, t, formatCurrency }}>
+    <LanguageContext.Provider value={{ 
+      language, 
+      setLanguage, 
+      currency, 
+      setCurrency, 
+      t, 
+      formatCurrency,
+      availableLanguages: SUPPORTED_LANGUAGES,
+      availableCurrencies: SUPPORTED_CURRENCIES,
+    }}>
       {children}
     </LanguageContext.Provider>
   );

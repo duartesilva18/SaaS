@@ -104,7 +104,7 @@ function TransactionsPageContent() {
         setFormData(prev => ({
           ...prev,
           category_id: categoryId,
-          description: action === 'add' ? `Depósito em ${category.name}` : `Resgate de ${category.name}`
+          description: action === 'add' ? `${t.dashboard.transactions.depositIn} ${category.name}` : `${t.dashboard.transactions.withdrawalFrom} ${category.name}`
         }));
         setShowAddModal(true);
         // Limpar URL
@@ -135,12 +135,23 @@ function TransactionsPageContent() {
   }, [searchTerm, activeTab, selectedCategory]);
 
   const stats = useMemo(() => {
+    // Backend garante sinais corretos: income > 0, expense < 0
+    // Frontend confia nos sinais (sem Math.abs() nos cálculos)
     const income = transactions
-      .filter(t => categories.find(c => c.id === t.category_id)?.type === 'income')
-      .reduce((acc, curr) => acc + curr.amount_cents, 0);
+      .filter(t => {
+        const cat = categories.find(c => c.id === t.category_id);
+        return cat?.type === 'income' && cat?.vault_type === 'none'; // Excluir vault
+      })
+      .reduce((acc, curr) => acc + curr.amount_cents, 0) / 100; // Já é positivo
+    
+    // Despesas são negativas, converter para positivo
     const expenses = transactions
-      .filter(t => categories.find(c => c.id === t.category_id)?.type === 'expense')
-      .reduce((acc, curr) => acc + curr.amount_cents, 0);
+      .filter(t => {
+        const cat = categories.find(c => c.id === t.category_id);
+        return cat?.type === 'expense' && cat?.vault_type === 'none'; // Excluir vault
+      })
+      .reduce((acc, curr) => acc + curr.amount_cents, 0) / -100; // Converte negativo para positivo
+    
     return { income, expenses, balance: income - expenses };
   }, [transactions, categories]);
 
@@ -149,13 +160,13 @@ function TransactionsPageContent() {
     try {
       // Validar que o valor foi inserido
       if (!formData.amount || formData.amount.trim() === '' || parseFloat(formData.amount) <= 0) {
-        setToastInfo({ message: "Por favor, insere um valor válido maior que zero.", type: 'error', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.validation.invalidAmount, type: 'error', isVisible: true });
         return;
       }
 
       // Validar que uma categoria foi selecionada
       if (!formData.category_id || formData.category_id === '') {
-        setToastInfo({ message: "Por favor, seleciona uma categoria.", type: 'error', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.validation.noCategory, type: 'error', isVisible: true });
         return;
       }
 
@@ -164,84 +175,71 @@ function TransactionsPageContent() {
       today.setHours(0, 0, 0, 0);
       
       if (selectedDate > today) {
-        setToastInfo({ message: "A jornada Zen só regista o presente ou o passado. Escolha uma data válida.", type: 'error', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.validation.invalidDate, type: 'error', isVisible: true });
         return;
       }
 
       // Verificar se a categoria selecionada existe
       const selectedCategory = categories.find(c => c.id === formData.category_id);
       if (!selectedCategory) {
-        setToastInfo({ message: "Categoria inválida. Por favor, seleciona novamente.", type: 'error', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.validation.invalidCategory, type: 'error', isVisible: true });
         return;
       }
 
       // Debug: verificar categoria selecionada
       console.log('Categoria selecionada:', selectedCategory.name, 'Tipo:', selectedCategory.type, 'ID:', formData.category_id);
 
-      // Determinar o sinal do amount_cents baseado no tipo da categoria
-      // IMPORTANTE: Para retirar dinheiro do Fundo de Emergência ou Investimento:
-      // - A categoria "Fundo de Emergência" está como type='expense'
-      // - Para adicionar: criar transação no grupo "Despesas/Investimentos" com amount_cents negativo
-      // - Para retirar: criar transação no grupo "Receitas" com amount_cents positivo
-      // O analytics verifica o sinal do amount_cents:
-      // - Se amount_cents < 0 (despesa) e cat.vault_type === 'emergency': adiciona ao total
-      // - Se amount_cents > 0 (receita) e cat.vault_type === 'emergency': subtrai do total (resgate)
+      // REGRA ÚNICA DE SINAIS (respeitando validação do backend):
+      // income regular → amount_cents > 0 (OBRIGATÓRIO)
+      // expense regular → amount_cents < 0 (OBRIGATÓRIO)
+      // vault deposit → amount_cents > 0 (independente do type)
+      // vault withdraw → amount_cents < 0 (independente do type)
       
       let amount_cents = Math.round(parseFloat(formData.amount) * 100);
       const isVaultCategory = selectedCategory.vault_type !== 'none';
       
-      // Verificar se a categoria está no grupo "Receitas" (resgate)
-      // Como não temos acesso direto ao optgroup selecionado, vamos verificar:
-      // Se a categoria é de vault (Fundo de Emergência/Investimento) e type='expense',
-      // mas o utilizador quer fazer resgate, precisa estar no grupo "Receitas"
-      // Vamos usar uma heurística: se a categoria é de vault e type='expense',
-      // vamos verificar se há uma opção no grupo "Receitas" com o mesmo ID
-      // Por enquanto, vamos assumir que se a categoria é de vault e type='expense',
-      // e o utilizador quer retirar, deve selecionar no grupo "Receitas"
-      // Nesse caso, vamos criar com amount positivo (receita)
-      
-      // SOLUÇÃO: Se a categoria é de vault e type='expense', verificar se está no grupo "Receitas"
-      // Como não temos essa informação direta, vamos criar uma lógica baseada no contexto:
-      // Se a categoria é de vault, vamos permitir que o utilizador escolha entre adicionar (negativo) ou retirar (positivo)
-      // Por enquanto, vamos manter a lógica: se type='expense', amount é negativo (adiciona ao vault)
-      // Para retirar, o utilizador precisa criar uma transação de receita (type='income') com a mesma categoria
-      // Mas isso não é possível porque a categoria está como type='expense'
-      
-      // SOLUÇÃO FINAL: Ajustar o analytics para verificar o sinal do amount_cents em vez de apenas cat.type
-      // Por enquanto, vamos criar com amount positivo se a categoria é de vault e está no grupo "Receitas"
-      // Mas como não temos essa informação, vamos criar uma solução alternativa:
-      // Permitir que o utilizador crie transações com amount positivo para categorias de vault
-      // e ajustar o analytics para tratar isso corretamente
-      
-      if (selectedCategory.type === 'income') {
-        // Receita normal ou resgate de vault
+      // Determinar sinal baseado no tipo da categoria
+      if (isVaultCategory) {
+        // Para vault: o sinal determina depósito (positivo) vs resgate (negativo)
+        // Por padrão: type='expense' = depósito (positivo), type='income' = resgate (negativo)
+        if (selectedCategory.type === 'income') {
+          // Resgate de vault: negativo
+          amount_cents = -Math.abs(amount_cents);
+        } else {
+          // Depósito em vault: positivo
+          amount_cents = Math.abs(amount_cents);
+        }
+      } else if (selectedCategory.type === 'income') {
+        // Receita regular: sempre positiva
         amount_cents = Math.abs(amount_cents);
-      } else {
-        // Despesa normal ou depósito em vault
+      } else if (selectedCategory.type === 'expense') {
+        // Despesa regular: sempre negativa
         amount_cents = -Math.abs(amount_cents);
       }
       
-      // Se é resgate de vault (amount positivo e categoria de vault), verificar saldo disponível
-      if (isVaultCategory && amount_cents > 0) {
+      // Se é resgate de vault (amount negativo e categoria de vault), verificar saldo disponível
+      // REGRA: depósito = amount_cents > 0, resgate = amount_cents < 0
+      if (isVaultCategory && amount_cents < 0) {
         // Calcular saldo atual do vault
         const vaultTransactions = transactions.filter(t => {
           const cat = categories.find(c => c.id === t.category_id);
           return cat && cat.id === selectedCategory.id;
         });
         
-        // Calcular saldo: depósitos (negativos) aumentam, resgates (positivos) diminuem
+        // Calcular saldo: depósitos (positivos) aumentam, resgates (negativos) diminuem
         const vaultBalance = vaultTransactions.reduce((balance, t) => {
-          if (t.amount_cents < 0) {
-            return balance + Math.abs(t.amount_cents); // Depósito
+          if (t.amount_cents > 0) {
+            return balance + t.amount_cents; // Depósito (já é positivo)
           } else {
-            return balance - t.amount_cents; // Resgate
+            return balance - Math.abs(t.amount_cents); // Resgate (subtrair valor absoluto)
           }
         }, 0);
         
-        if (amount_cents > vaultBalance) {
+        const withdrawalAmount = Math.abs(amount_cents);
+        if (withdrawalAmount > vaultBalance) {
           const available = (vaultBalance / 100).toFixed(2);
           setToastInfo({ 
-            message: `Saldo insuficiente no ${selectedCategory.name}. Disponível: ${formatCurrency(parseFloat(available))}`, 
+            message: `${t.dashboard.vault.insufficientBalance}\n\n${t.dashboard.vault.available} ${formatCurrency(parseFloat(available))}`, 
             type: 'error', 
             isVisible: true 
           });
@@ -262,7 +260,7 @@ function TransactionsPageContent() {
 
       // Validar formato da data
       if (!formData.transaction_date) {
-        setToastInfo({ message: "Por favor, seleciona uma data.", type: 'error', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.validation.noDate, type: 'error', isVisible: true });
         return;
       }
 
@@ -281,7 +279,7 @@ function TransactionsPageContent() {
         setToastInfo({ message: "Transação atualizada!", type: 'success', isVisible: true });
       } else {
         await api.post('/transactions/', payload);
-        setToastInfo({ message: "Transação registada com sucesso!", type: 'success', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.success, type: 'success', isVisible: true });
       }
 
       setShowAddModal(false);
@@ -320,7 +318,7 @@ function TransactionsPageContent() {
           errorMessage = JSON.stringify(detail);
         }
       } else if (err.response?.status === 400) {
-        errorMessage = err.response?.data?.detail || "Dados inválidos. Verifica os campos preenchidos.";
+        errorMessage = err.response?.data?.detail || t.dashboard.transactions.error;
       } else if (err.response?.data?.detail) {
         errorMessage = err.response.data.detail;
       }
@@ -346,7 +344,7 @@ function TransactionsPageContent() {
       console.error('Erro ao eliminar transação:', err);
       console.error('ID da transação:', transactionToDelete);
       console.error('Resposta do erro:', err.response?.data);
-      const errorMessage = err.response?.data?.detail || err.message || 'Erro ao eliminar transação.';
+      const errorMessage = err.response?.data?.detail || err.message || t.dashboard.transactions.deleteError;
       setToastInfo({ message: errorMessage, type: 'error', isVisible: true });
       setTransactionToDelete(null);
     }
@@ -387,11 +385,11 @@ function TransactionsPageContent() {
           <div>
             <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full mb-6">
               <Sparkles size={14} className="text-blue-400" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Teu Diário de Abundância</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">{t.dashboard.transactions.yourAbundanceDiary}</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
-              Registo de <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 italic">Atividade</span>
+              {t.dashboard.transactions.activityRecord} <br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 italic">{t.dashboard.transactions.activity}</span>
             </h1>
           </div>
 
@@ -400,7 +398,7 @@ function TransactionsPageContent() {
               <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 blur-[40px] rounded-full" />
               <div className="flex items-center gap-3 mb-2 text-slate-500">
                 <ArrowUpRight size={16} className="text-emerald-500" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Receitas Totais</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.totalIncome}</span>
               </div>
               <p className="text-3xl font-black text-white">{formatCurrency(stats.income / 100)}</p>
             </div>
@@ -409,7 +407,7 @@ function TransactionsPageContent() {
               <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/5 blur-[40px] rounded-full" />
               <div className="flex items-center gap-3 mb-2 text-slate-500">
                 <ArrowDownRight size={16} className="text-red-500" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Despesas Totais</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.totalExpenses}</span>
               </div>
               <p className="text-3xl font-black text-white">{formatCurrency(stats.expenses / 100)}</p>
             </div>
@@ -424,7 +422,7 @@ function TransactionsPageContent() {
               className="flex items-center gap-3 px-8 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-xs transition-all shadow-2xl shadow-blue-600/30 group active:scale-95 cursor-pointer h-full"
             >
               <Plus size={20} className="group-hover:rotate-90 transition-transform" />
-              Nova Transação
+              {t.dashboard.transactions.addNew}
             </button>
           </div>
         </div>
@@ -444,7 +442,7 @@ function TransactionsPageContent() {
                   : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
-                {tab === 'all' ? 'Tudo' : tab === 'income' ? 'Receitas' : 'Despesas'}
+                {tab === 'all' ? t.dashboard.transactions.filters.allLabel : tab === 'income' ? t.dashboard.transactions.filters.income : t.dashboard.transactions.filters.expense}
               </button>
             ))}
           </div>
@@ -454,7 +452,7 @@ function TransactionsPageContent() {
               <Search size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
               <input 
                 type="text" 
-                placeholder="Pesquisar por descrição..."
+                placeholder={t.dashboard.transactions.searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-slate-950/50 border border-slate-800 rounded-3xl py-4 pl-14 pr-5 text-white placeholder:text-slate-800 focus:border-blue-500/50 transition-all outline-none font-medium"
@@ -468,7 +466,7 @@ function TransactionsPageContent() {
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="w-full bg-slate-950/50 border border-slate-800 rounded-3xl py-4 pl-14 pr-10 text-white appearance-none focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
               >
-                <option value="all">Todas as Categorias</option>
+                <option value="all">{t.dashboard.transactions.allCategories}</option>
                 {categories.map(c => (
                   <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
                 ))}
@@ -481,7 +479,7 @@ function TransactionsPageContent() {
         <div className="flex items-center gap-2 px-4 py-3 bg-blue-500/5 border border-blue-500/10 rounded-2xl w-fit">
           <Info size={14} className="text-blue-400" />
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Dica Zen: <span className="text-blue-400">Clica em qualquer linha</span> da tabela para editar ou eliminar um registo.
+            {t.dashboard.transactions.zenTip} <span className="text-blue-400">{t.dashboard.transactions.zenTipText.split('Clica em qualquer linha')[0]}</span>{t.dashboard.transactions.zenTipText.split('Clica em qualquer linha')[1]}
           </p>
         </div>
       </section>
@@ -492,10 +490,10 @@ function TransactionsPageContent() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-800/50">
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Data</th>
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Descrição</th>
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Categoria</th>
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 text-right">Valor</th>
+                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.transactions.table.date}</th>
+                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.transactions.table.description}</th>
+                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.transactions.table.category}</th>
+                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 text-right">{t.dashboard.transactions.table.amount}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/30">
@@ -526,7 +524,7 @@ function TransactionsPageContent() {
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat?.color_hex || '#3b82f6' }} />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{cat?.name || 'Sem Categoria'}</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{cat?.name || t.dashboard.transactions.noCategory}</span>
                         </div>
                       </td>
                       <td className="px-8 py-6 text-right">
@@ -629,7 +627,7 @@ function TransactionsPageContent() {
               <div className="p-8 lg:p-12">
                 <div className="flex justify-between items-center mb-10">
                   <h2 className="text-3xl font-black text-white tracking-tighter">
-                    {editingTransaction ? 'Editar Registo' : 'Novo Registo'}
+                    {editingTransaction ? t.dashboard.transactions.editRecord : t.dashboard.transactions.newRecord}
                   </h2>
                   <button onClick={() => {
                     setShowAddModal(false);
@@ -641,7 +639,7 @@ function TransactionsPageContent() {
 
                 <form onSubmit={handleSubmit} noValidate className="space-y-8">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Descrição</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.table.description}</label>
                     <div className="relative group">
                       <Activity size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
                       <input
@@ -657,7 +655,7 @@ function TransactionsPageContent() {
 
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Valor</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.value}</label>
                       <div className="relative group">
                         <Wallet size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
                         <input
@@ -672,7 +670,7 @@ function TransactionsPageContent() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Data</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.date}</label>
                       <div className="relative group">
                         <Calendar size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
                         <input
@@ -688,7 +686,7 @@ function TransactionsPageContent() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Categoria</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.category}</label>
                     <div className="relative group">
                       <Tag size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
                       <select
@@ -697,9 +695,9 @@ function TransactionsPageContent() {
                         onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
                         className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-10 text-white appearance-none focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
                       >
-                        <option value="">Selecionar Categoria</option>
+                        <option value="">{t.dashboard.transactions.selectCategory}</option>
                         {/* Separar receitas e despesas para facilitar seleção */}
-                        <optgroup label="Receitas" className="bg-slate-900">
+                        <optgroup label={t.dashboard.transactions.filters.income} className="bg-slate-900">
                           {categories.filter(c => c.type === 'income').map((c) => (
                             <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
                           ))}
@@ -710,7 +708,7 @@ function TransactionsPageContent() {
                             </option>
                           ))}
                         </optgroup>
-                        <optgroup label="Despesas" className="bg-slate-900">
+                        <optgroup label={t.dashboard.transactions.filters.expense} className="bg-slate-900">
                           {categories.filter(c => c.type === 'expense' && c.vault_type === 'none').map((c) => (
                             <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
                           ))}
@@ -739,13 +737,13 @@ function TransactionsPageContent() {
                                   <span className={`font-black uppercase tracking-widest ${
                                     selectedCat.type === 'income' || isVaultInReceitas ? 'text-emerald-400' : 'text-red-400'
                                   }`}>
-                                    {selectedCat.type === 'income' || isVaultInReceitas ? 'Receita' : 'Despesa'}
+                                    {selectedCat.type === 'income' || isVaultInReceitas ? t.dashboard.categories.income : t.dashboard.categories.expense}
                                   </span>
                                   {selectedCat.vault_type !== 'none' && (
                                     <>
                                       <span className="text-slate-500">•</span>
                                       <span className="text-amber-400 font-black uppercase tracking-widest">
-                                        {selectedCat.vault_type === 'investment' ? 'Investimento' : 'Emergência'}
+                                        {selectedCat.vault_type === 'investment' ? t.dashboard.vault.zenInvestments : t.dashboard.vault.emergencyFund}
                                       </span>
                                     </>
                                   )}
@@ -764,7 +762,7 @@ function TransactionsPageContent() {
                             
                             return (
                               <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-blue-400 text-[10px] font-medium">
-                                💡 <strong>Dica:</strong> Para retirar dinheiro do fundo de emergência, seleciona esta categoria no grupo "Receitas" acima.
+                                💡 <strong>{t.dashboard.transactions.vaultTip}</strong> {t.dashboard.transactions.vaultTipText}
                               </div>
                             );
                           }
@@ -778,7 +776,7 @@ function TransactionsPageContent() {
                     type="submit"
                     className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-3xl font-black uppercase tracking-[0.2em] text-xs transition-all shadow-2xl shadow-blue-600/30 active:scale-[0.98] cursor-pointer"
                   >
-                    {editingTransaction ? 'Guardar Alterações' : 'Registar Transação'}
+                    {editingTransaction ? t.dashboard.transactions.saveChanges : t.dashboard.transactions.registerTransaction}
                   </button>
                 </form>
               </div>
@@ -820,13 +818,13 @@ function TransactionsPageContent() {
                     {selectedTransaction.description}
                   </h2>
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    Detalhes do Registo
+                    {t.dashboard.transactions.table.description}
                   </p>
                 </div>
 
                 <div className="w-full bg-white/5 border border-white/5 rounded-3xl p-6 space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Valor</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.value}</span>
                     <span className={`text-xl font-black ${
                       categories.find(c => c.id === selectedTransaction.category_id)?.type === 'income' 
                       ? 'text-emerald-400' 
@@ -836,17 +834,17 @@ function TransactionsPageContent() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Data</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.date}</span>
                     <span className="text-sm font-bold text-white">
                       {new Date(selectedTransaction.transaction_date).toLocaleDateString('pt-PT')}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Categoria</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.category}</span>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: categories.find(c => c.id === selectedTransaction.category_id)?.color_hex || '#3b82f6' }} />
                       <span className="text-sm font-bold text-white">
-                        {categories.find(c => c.id === selectedTransaction.category_id)?.name || 'Sem Categoria'}
+                        {categories.find(c => c.id === selectedTransaction.category_id)?.name || t.dashboard.transactions.noCategory}
                       </span>
                     </div>
                   </div>
@@ -857,13 +855,13 @@ function TransactionsPageContent() {
                     onClick={() => handleEdit(selectedTransaction)}
                     className="px-6 py-4 bg-white/5 border border-slate-800 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <Edit2 size={14} /> Editar
+                    <Edit2 size={14} /> {t.dashboard.transactions.editButton}
                   </button>
                   <button
                     onClick={() => setTransactionToDelete(selectedTransaction.id)}
                     className="px-6 py-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-red-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <Trash2 size={14} /> Eliminar
+                    <Trash2 size={14} /> {t.dashboard.transactions.deleteButton}
                   </button>
                 </div>
 
@@ -902,9 +900,9 @@ function TransactionsPageContent() {
                 <Trash2 size={32} />
               </div>
               
-              <h3 className="text-2xl font-black text-white tracking-tighter mb-2">Eliminar Registo?</h3>
+              <h3 className="text-2xl font-black text-white tracking-tighter mb-2">{t.dashboard.transactions.deleteConfirm}</h3>
               <p className="text-slate-500 text-sm font-medium italic mb-8">
-                Esta ação não pode ser desfeita. O registo será removido permanentemente.
+                {t.dashboard.transactions.deleteConfirmText}
               </p>
 
               <div className="grid grid-cols-2 gap-3">
@@ -912,13 +910,13 @@ function TransactionsPageContent() {
                   onClick={() => setTransactionToDelete(null)}
                   className="px-6 py-4 border border-slate-800 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/5 transition-all cursor-pointer"
                 >
-                  Cancelar
+                  {t.dashboard.analytics.cancel}
                 </button>
                 <button
                   onClick={handleDelete}
                   className="px-6 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-red-600/20 transition-all cursor-pointer"
                 >
-                  Sim, Eliminar
+                  {t.dashboard.transactions.delete}
                 </button>
               </div>
             </motion.div>

@@ -1,8 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import api from '@/lib/api';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area, ReferenceLine } from 'recharts';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import api, { fetcher } from '@/lib/api';
+import useSWR from 'swr';
+import { useDashboardSnapshot } from '@/lib/hooks/useDashboard';
+// Lazy loading de charts para reduzir bundle inicial
+import { 
+  LazyBarChart, LazyBar, LazyAreaChart, LazyArea,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine
+} from '@/components/charts/LazyCharts';
 import { ArrowUpCircle, ArrowDownCircle, Wallet, Info, Lock, ArrowRight, ChevronRight, AlertCircle, Zap, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/lib/LanguageContext';
@@ -41,7 +47,185 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  
+  // Usar SWR para cache inteligente e deduplicação
+  const { snapshot, collections, isLoading: snapshotLoading, mutate: mutateSnapshot } = useDashboardSnapshot();
+  
+  // Buscar invoices separadamente (não está no snapshot)
+  const { data: invoicesData } = useSWR('/stripe/invoices', fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60000,
+  });
+  
+  // Buscar user profile para subscription status
+  const { data: userData } = useSWR('/auth/me', fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60000,
+  });
+  
+  // Memoizar cálculos pesados
+  const hasActiveSub = useMemo(() => {
+    return userData ? ['active', 'trialing', 'cancel_at_period_end'].includes(userData.subscription_status) : false;
+  }, [userData]);
+  
+  const shouldShowPaywall = useMemo(() => {
+    return !hasActiveSub && !searchParams.get('session_id');
+  }, [hasActiveSub, searchParams]);
 
+  const fetchData = useCallback(async () => {
+      try {
+        setLoading(true);
+        
+        // Se snapshot ainda está a carregar, esperar
+        if (snapshotLoading || !snapshot || !collections) {
+          return;
+        }
+
+        const user = userData;
+        const invoices = invoicesData || [];
+        
+        // Verificar se há faturas não pagas
+        const hasUnpaid = invoices.some((inv: any) => 
+          inv?.status?.toLowerCase() === 'unpaid' || 
+          (inv?.status?.toLowerCase() === 'open' && inv?.amount_due > 0)
+        );
+
+        if (hasUnpaid) {
+          setToast({
+            show: true,
+            message: 'Atenção: Tens pagamentos em atraso. Verifica a tua faturação.',
+            type: 'error'
+          });
+        }
+        
+        // Usar hasActiveSub memoizado
+        setIsPro(hasActiveSub);
+        
+        // Só mostrar o Paywall se não for Pro E não estivermos a voltar de um pagamento (session_id)
+        if (shouldShowPaywall) {
+          setShowPaywall(true);
+        }
+
+        // Usar snapshot calculado pelo backend (sem cálculos no frontend!)
+        const transactions = collections.recent_transactions || [];
+        const categories = collections.categories || [];
+
+        // Se não for Pro e não tiver transações, usar demo
+        let finalTransactions = transactions;
+        let finalCategories = categories;
+        if (!hasActiveSub && transactions.length === 0) {
+          finalTransactions = DEMO_TRANSACTIONS;
+          finalCategories = DEMO_CATEGORIES;
+        }
+
+        // Calcular alertas baseado em categories e snapshot
+        const categoryMap = finalCategories.reduce((acc: any, cat: any) => {
+          acc[cat.id] = { ...cat, total: 0 };
+          return acc;
+        }, {});
+
+        // Calcular totais por categoria para alertas
+        finalTransactions.forEach((t: any) => {
+          const cat = categoryMap[t.category_id];
+          if (cat && cat.vault_type === 'none') {
+            const amount = Math.abs(Number(t.amount_cents || 0) / 100);
+            cat.total += amount;
+          }
+        });
+
+        // Calcular Alertas
+        const newAlerts = finalCategories
+          .filter((cat: any) => cat.type === 'expense' && cat.monthly_limit_cents > 0)
+          .map((cat: any) => {
+            const currentSpent = categoryMap[cat.id]?.total || 0;
+            const limit = cat.monthly_limit_cents / 100;
+            const progress = (currentSpent / limit) * 100;
+            
+            if (progress >= 100) {
+              const overAmount = currentSpent - limit;
+              return {
+                type: 'danger',
+                title: overAmount > 0 ? 'Limite Excedido!' : 'Limite Atingido!',
+                message: overAmount > 0 
+                  ? `Gastaste mais ${formatCurrency(overAmount)} em ${cat.name} do que o planeado.`
+                  : `Atingiste o teu limite planeado de ${formatCurrency(limit)} em ${cat.name}.`,
+                category: cat.name,
+                icon: 'AlertCircle'
+              };
+            } else if (progress >= 80) {
+              return {
+                type: 'warning',
+                title: 'Atenção ao Limite',
+                message: `Estás a ${Math.max(1, Math.round(100 - progress))}% de atingir o limite em ${cat.name}.`,
+                category: cat.name,
+                icon: 'Zap'
+              };
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        setAlerts(newAlerts);
+        
+        // Usar dados do snapshot (já calculados pelo backend)
+        const totalLimits = finalCategories
+          .filter((c: any) => c.type === 'expense')
+          .reduce((sum: number, c: any) => sum + (Number(c.monthly_limit_cents || 0) / 100), 0);
+        
+        const now = new Date();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const daysPassed = now.getDate();
+        const daysLeft = Math.max(1, daysInMonth - daysPassed);
+        
+        // Processamento para o gráfico de Ritmo Diário
+        const dailySpending: any = {};
+        for (let i = 1; i <= daysInMonth; i++) {
+          dailySpending[i] = 0;
+        }
+
+        finalTransactions.forEach((t: any) => {
+          const tDate = new Date(t.transaction_date);
+          if (tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear()) {
+            const cat = categoryMap[t.category_id];
+            if (cat && cat.type === 'expense' && cat.vault_type === 'none') {
+              dailySpending[tDate.getDate()] += Math.abs(Number(t.amount_cents || 0) / 100);
+            }
+          }
+        });
+
+        const formattedTrendData = Object.entries(dailySpending).map(([day, amount]) => ({
+          day: `${day}`,
+          amount: Number(amount),
+          limit: snapshot.daily_allowance > 0 ? snapshot.daily_allowance : null
+        }));
+
+        setTrendData(formattedTrendData as any);
+
+        // Usar snapshot do backend (fonte única de verdade)
+        setStats({ 
+          income: snapshot.income || 0, 
+          expenses: snapshot.expenses || 0, 
+          balance: (snapshot.income || 0) - (snapshot.expenses || 0), 
+          vault: snapshot.vault_total || 0,
+          totalLimits: snapshot.income > 0 ? snapshot.income : totalLimits,
+          dailyAllowance: snapshot.daily_allowance || 0,
+          efficiencyScore: snapshot.saving_rate || 0
+        });
+        setChartData(Object.values(categoryMap).filter((c: any) => c.total > 0) as any);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+        
+        // Prefetch analytics em background (não bloqueia)
+        if (isPro) {
+          api.get('/insights/composite').catch(() => {
+            // Silenciar erros de prefetch
+          });
+        }
+      }
+    }, [snapshot, collections, snapshotLoading, userData, invoicesData, hasActiveSub, shouldShowPaywall, formatCurrency, isPro]);
+  
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
     if (sessionId) {
@@ -76,23 +260,8 @@ export default function DashboardPage() {
               colors: ['#3b82f6', '#fbbf24', '#ffffff']
             });
             
-            // Recarregar dados do dashboard para refletir modo Pro
-            // Chamar fetchData novamente para atualizar transações/categorias reais
-            setTimeout(async () => {
-              try {
-                const [transRes, catRes] = await Promise.all([
-                  api.get('/transactions/'),
-                  api.get('/categories/')
-                ]);
-                // Os dados serão atualizados automaticamente no próximo render
-                // Mas podemos forçar uma atualização se necessário
-              } catch (err) {
-                console.error('Erro ao recarregar dados:', err);
-              }
-            }, 500);
-            
-            // Retornar para evitar continuar o retry
-            return;
+            // Invalidar cache SWR para recarregar dados
+            mutateSnapshot();
           } else if (retryCount < 5) {
             // Ainda não está completo, tentar novamente
             setTimeout(() => verifyAndActivate(retryCount + 1), 1500);
@@ -127,363 +296,14 @@ export default function DashboardPage() {
       // Começar verificação após pequeno delay para dar tempo ao webhook
       setTimeout(() => verifyAndActivate(), 2000);
     }
+  }, [searchParams, refreshUser, mutateSnapshot]);
 
-    const fetchData = async () => {
-      // Garantir que a tela de loading aparece pelo menos 1 segundo
-      const minLoadingTime = new Promise(resolve => setTimeout(resolve, 1000));
-      
-      try {
-        // Verificar cache primeiro (2 minutos) - só na primeira vez demora
-        const cacheKey = 'dashboard_cache';
-        const cached = localStorage.getItem(cacheKey);
-        if (cached && !searchParams.get('session_id')) {
-          const { data: cachedData, timestamp } = JSON.parse(cached);
-          const isFresh = Date.now() - timestamp < 120000; // 2 minutos
-          if (isFresh) {
-            // Usar dados em cache - muito mais rápido!
-            const user = cachedData.user;
-            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
-            setIsPro(hasActiveSub);
-            if (!hasActiveSub && !searchParams.get('session_id')) {
-              setShowPaywall(true);
-            }
-            
-            let transactions = cachedData.transactions.filter((t: any) => Math.abs(t.amount_cents) !== 1);
-            let categories = cachedData.categories;
-            
-            if (!hasActiveSub && transactions.length === 0) {
-              transactions = DEMO_TRANSACTIONS;
-              categories = DEMO_CATEGORIES;
-            }
-            
-            // Reutilizar toda a lógica de cálculo abaixo (copiada para cache)
-            let income = 0;
-            let expenses = 0;
-            let vault = 0;
-            const categoryMap = categories.reduce((acc: any, cat: any) => {
-              acc[cat.id] = { ...cat, total: 0 };
-              return acc;
-            }, {});
-            
-            transactions.forEach((t: any) => {
-              const cat = categoryMap[t.category_id];
-              if (cat) {
-                const amount = Math.abs(Number(t.amount_cents || 0) / 100);
-                cat.total += amount;
-                if (cat.type === 'income') {
-                  income += amount;
-                } else {
-                  if (cat.nature === 'investment' || cat.nature === 'emergency' || cat.vault_type !== 'none') {
-                    vault += amount;
-                  } else {
-                    expenses += amount;
-                  }
-                }
-              }
-            });
-            
-            const newAlerts = categories
-              .filter((cat: any) => cat.type === 'expense' && cat.monthly_limit_cents > 0)
-              .map((cat: any) => {
-                const currentSpent = categoryMap[cat.id]?.total || 0;
-                const limit = cat.monthly_limit_cents / 100;
-                const progress = (currentSpent / limit) * 100;
-                if (progress >= 100) {
-                  const overAmount = currentSpent - limit;
-                  return {
-                    type: 'danger',
-                    title: overAmount > 0 ? 'Limite Excedido!' : 'Limite Atingido!',
-                    message: overAmount > 0 
-                      ? `Gastaste mais ${formatCurrency(overAmount)} em ${cat.name} do que o planeado.`
-                      : `Atingiste o teu limite planeado de ${formatCurrency(limit)} em ${cat.name}.`,
-                    category: cat.name,
-                    icon: 'AlertCircle'
-                  };
-                } else if (progress >= 80) {
-                  return {
-                    type: 'warning',
-                    title: 'Atenção ao Limite',
-                    message: `Estás a ${Math.max(1, Math.round(100 - progress))}% de atingir o limite em ${cat.name}.`,
-                    category: cat.name,
-                    icon: 'Zap'
-                  };
-                }
-                return null;
-              })
-              .filter(Boolean);
-            
-            setAlerts(newAlerts);
-            
-            const totalLimits = (categories || [])
-              .filter((c: any) => c.type === 'expense')
-              .reduce((sum: number, c: any) => sum + (Number(c.monthly_limit_cents || 0) / 100), 0);
-            
-            const now = new Date();
-            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-            const daysPassed = now.getDate();
-            const daysLeft = Math.max(1, daysInMonth - daysPassed);
-            const totalBudget = income > 0 ? income : totalLimits;
-            const remainingMoney = Math.max(0, totalBudget - expenses - vault);
-            const dailyAllowance = remainingMoney / daysLeft;
-            const efficiencyScore = (income > 0) ? ((income - expenses) / income) * 100 : 0;
-            
-            const dailySpending: any = {};
-            const daysInMonthTotal = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-            for (let i = 1; i <= daysInMonthTotal; i++) {
-              dailySpending[i] = 0;
-            }
-            
-            transactions.forEach((t: any) => {
-              const tDate = new Date(t.transaction_date);
-              if (tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear()) {
-                const cat = categoryMap[t.category_id];
-                if (cat && cat.type === 'expense' && cat.vault_type === 'none') {
-                  dailySpending[tDate.getDate()] += Math.abs(Number(t.amount_cents || 0) / 100);
-                }
-              }
-            });
-            
-            const formattedTrendData = Object.entries(dailySpending).map(([day, amount]) => ({
-              day: `${day}`,
-              amount: Number(amount),
-              limit: dailyAllowance > 0 ? dailyAllowance : null
-            }));
-            
-            setTrendData(formattedTrendData as any);
-            setStats({ 
-              income: Number(income || 0), 
-              expenses: Number(expenses || 0), 
-              balance: Number((income - expenses) || 0), 
-              vault: Number(vault || 0),
-              totalLimits: Number(totalBudget || 0),
-              dailyAllowance: Number(dailyAllowance || 0),
-              efficiencyScore: Number(efficiencyScore || 0)
-            });
-            setChartData(Object.values(categoryMap).filter((c: any) => c.total > 0) as any);
-            // Aguardar pelo menos 1 segundo antes de esconder o loading
-            await minLoadingTime;
-            setLoading(false);
-            return; // Sair cedo se usar cache
-          }
-        }
-
-        // Limitar transações a 100 para melhor performance
-        const [profileRes, transRes, catRes, invoicesRes] = await Promise.all([
-          api.get('/auth/me'),
-          api.get('/transactions/?limit=100'),
-          api.get('/categories/'),
-          api.get('/stripe/invoices')
-        ]);
-        
-        const user = profileRes.data;
-        const invoices = invoicesRes.data;
-        
-        // Guardar no cache após buscar
-        localStorage.setItem(cacheKey, JSON.stringify({
-          data: {
-            user,
-            transactions: transRes.data,
-            categories: catRes.data,
-            invoices
-          },
-          timestamp: Date.now()
-        }));
-
-        // Verificar se há faturas não pagas
-        const hasUnpaid = invoices.some((inv: any) => 
-          inv.status.toLowerCase() === 'unpaid' || 
-          (inv.status.toLowerCase() === 'open' && inv.amount_due > 0)
-        );
-
-        if (hasUnpaid) {
-          setToast({
-            show: true,
-            message: 'Atenção: Tens pagamentos em atraso. Verifica a tua faturação.',
-            type: 'error'
-          });
-        }
-        // Inclui 'cancel_at_period_end' para manter acesso até ao fim do período
-        const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
-        setIsPro(hasActiveSub);
-        
-        // Só mostrar o Paywall se não for Pro E não estivermos a voltar de um pagamento (session_id)
-        if (!hasActiveSub && !searchParams.get('session_id')) {
-          setShowPaywall(true);
-        }
-
-        // Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
-        let transactions = [...transRes.data].filter(t => Math.abs(t.amount_cents) !== 1);
-        let categories = catRes.data;
-
-        if (!hasActiveSub && transactions.length === 0) {
-          transactions = DEMO_TRANSACTIONS;
-          categories = DEMO_CATEGORIES;
-        }
-
-        let income = 0;
-        let expenses = 0;
-        let vault = 0;
-        
-        const categoryMap = categories.reduce((acc: any, cat: any) => {
-          acc[cat.id] = { ...cat, total: 0 };
-          return acc;
-        }, {});
-
-        transactions.forEach((t: any) => {
-          const cat = categoryMap[t.category_id];
-          if (cat) {
-            const amount = Math.abs(Number(t.amount_cents || 0) / 100);
-            cat.total += amount;
-            
-            if (cat.type === 'income') {
-              income += amount;
-            } else {
-              // Se for investimento ou emergência, somar ao cofre, não às despesas
-              if (cat.nature === 'investment' || cat.nature === 'emergency' || cat.vault_type !== 'none') {
-                vault += amount;
-              } else {
-                expenses += amount;
-              }
-            }
-          }
-        });
-
-        // Calcular Alertas
-        const newAlerts = categories
-          .filter((cat: any) => cat.type === 'expense' && cat.monthly_limit_cents > 0)
-          .map((cat: any) => {
-            const currentSpent = categoryMap[cat.id]?.total || 0;
-            const limit = cat.monthly_limit_cents / 100;
-            const progress = (currentSpent / limit) * 100;
-            
-            if (progress >= 100) {
-              const overAmount = currentSpent - limit;
-              return {
-                type: 'danger',
-                title: overAmount > 0 ? 'Limite Excedido!' : 'Limite Atingido!',
-                message: overAmount > 0 
-                  ? `Gastaste mais ${formatCurrency(overAmount)} em ${cat.name} do que o planeado.`
-                  : `Atingiste o teu limite planeado de ${formatCurrency(limit)} em ${cat.name}.`,
-                category: cat.name,
-                icon: 'AlertCircle'
-              };
-            } else if (progress >= 80) {
-              return {
-                type: 'warning',
-                title: 'Atenção ao Limite',
-                message: `Estás a ${Math.max(1, Math.round(100 - progress))}% de atingir o limite em ${cat.name}.`,
-                category: cat.name,
-                icon: 'Zap'
-              };
-            }
-            return null;
-          })
-          .filter(Boolean);
-
-        setAlerts(newAlerts);
-        
-        // Cálculos de Projeção e Eficiência (Exclusivos da Dashboard)
-        const totalLimits = (categories || [])
-          .filter((c: any) => c.type === 'expense')
-          .reduce((sum: number, c: any) => sum + (Number(c.monthly_limit_cents || 0) / 100), 0);
-        
-        const now = new Date();
-        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        const daysPassed = now.getDate();
-        const daysLeft = Math.max(1, daysInMonth - daysPassed);
-        
-        // Agora o Orçamento Global é baseado na Receita (o que tens para gastar)
-        // Se não houver receita este mês, usamos os limites como fallback
-        const totalBudget = income > 0 ? income : totalLimits;
-        
-        // O dinheiro que sobra para gastar por dia é: 
-        // Orçamento Total - O que já consumiste - O que já guardaste (investimento)
-        const remainingMoney = Math.max(0, totalBudget - expenses - vault);
-        const dailyAllowance = remainingMoney / daysLeft;
-        
-        const efficiencyScore = (income > 0) ? ((income - expenses) / income) * 100 : 0;
-
-        // Processamento para o novo gráfico de Ritmo Diário
-        const dailySpending: any = {};
-        const daysInMonthTotal = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        for (let i = 1; i <= daysInMonthTotal; i++) {
-          dailySpending[i] = 0;
-        }
-
-        transactions.forEach((t: any) => {
-          const tDate = new Date(t.transaction_date);
-          if (tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear()) {
-            const cat = categoryMap[t.category_id];
-            if (cat && cat.type === 'expense' && cat.vault_type === 'none') {
-              dailySpending[tDate.getDate()] += Math.abs(Number(t.amount_cents || 0) / 100);
-            }
-          }
-        });
-
-        const formattedTrendData = Object.entries(dailySpending).map(([day, amount]) => ({
-          day: `${day}`,
-          amount: Number(amount),
-          limit: dailyAllowance > 0 ? dailyAllowance : null
-        }));
-
-        setTrendData(formattedTrendData as any);
-
-        // O Saldo representa a saúde financeira real: tudo o que entrou menos o que foi consumido
-        setStats({ 
-          income: Number(income || 0), 
-          expenses: Number(expenses || 0), 
-          balance: Number((income - expenses) || 0), 
-          vault: Number(vault || 0),
-          totalLimits: Number(totalBudget || 0), // Agora reflete o Budget Real (Receita ou Plan)
-          dailyAllowance: Number(dailyAllowance || 0),
-          efficiencyScore: Number(efficiencyScore || 0)
-        });
-        setChartData(Object.values(categoryMap).filter((c: any) => c.total > 0) as any);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        // Aguardar pelo menos 1 segundo antes de esconder o loading
-        await minLoadingTime;
-        setLoading(false);
-        
-        // Prefetch dos dados da Análise Pro em background (não bloqueia)
-        const prefetchAnalytics = async () => {
-          try {
-            const [profileRes, analyticsRes] = await Promise.all([
-              api.get('/auth/me'),
-              api.get('/insights/composite')
-            ]);
-            
-            const user = profileRes.data;
-            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
-            
-            let compositeData = {
-              ...analyticsRes.data,
-              subscription_status: user.subscription_status
-            };
-            
-            // Se não for Pro e não tiver dados reais, não guardar (vai usar demo quando abrir)
-            if (!hasActiveSub && compositeData.transactions.length === 0) {
-              return;
-            }
-            
-            // Guardar no cache para uso imediato na página de analytics
-            localStorage.setItem('analytics_cache', JSON.stringify({
-              data: compositeData,
-              timestamp: Date.now()
-            }));
-          } catch (err) {
-            // Silenciar erros de prefetch - não é crítico
-            console.log('Prefetch analytics opcional falhou (não crítico)');
-          }
-        };
-        
-        // Iniciar prefetch em background (não esperar)
-        prefetchAnalytics();
-      }
-    };
-    fetchData();
-  }, []);
+  // Carregar dados quando snapshot estiver pronto
+  useEffect(() => {
+    if (snapshot && collections && userData && !snapshotLoading) {
+      fetchData();
+    }
+  }, [snapshot, collections, userData, snapshotLoading, fetchData]);
 
   // Prefetch dos dados da Análise Pro quando o dashboard já está carregado
   useEffect(() => {
@@ -546,7 +366,7 @@ export default function DashboardPage() {
       className="text-white pb-20"
     >
       <div className="flex items-center justify-between mb-12">
-        <h1 className="text-4xl font-black tracking-tighter text-white">Dashboard</h1>
+        <h1 className="text-4xl font-black tracking-tighter text-white">{t.dashboard.page.title}</h1>
         
         {!isPro && (
           <motion.div
@@ -555,12 +375,12 @@ export default function DashboardPage() {
             className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-2xl"
           >
             <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">Modo Demo Ativo</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">{t.dashboard.page.demoMode}</span>
             <Link 
               href="/pricing"
               className="ml-2 bg-amber-500 hover:bg-amber-400 text-black px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-colors"
             >
-              Upgrade Pro
+              {t.dashboard.page.upgradePro}
             </Link>
           </motion.div>
         )}
@@ -586,7 +406,7 @@ export default function DashboardPage() {
               <ArrowUpCircle size={28} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Receitas</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.income}</p>
               <p className="text-3xl font-black text-white tracking-tighter">
                 {formatCurrency(stats.income)}
                 <span className="text-emerald-400 ml-2 text-2xl">↑</span>
@@ -604,7 +424,7 @@ export default function DashboardPage() {
               <ArrowDownCircle size={28} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Consumo</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.expenses}</p>
               <p className="text-3xl font-black text-white tracking-tighter">
                 {formatCurrency(stats.expenses)}
                 <span className="text-red-400 ml-2 text-2xl">↓</span>
@@ -622,7 +442,7 @@ export default function DashboardPage() {
               <Target size={28} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Investido</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.invested}</p>
               <p className="text-3xl font-black text-white tracking-tighter">
                 {formatCurrency(stats.vault)}
                 <span className="text-blue-400 ml-2 text-2xl">💎</span>
@@ -640,7 +460,7 @@ export default function DashboardPage() {
               <Wallet size={28} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Saldo Global</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.balance}</p>
               <p className="text-3xl font-black text-white tracking-tighter">
                 {formatCurrency(stats.balance)}
               </p>
@@ -661,7 +481,7 @@ export default function DashboardPage() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 relative z-10">
             <div className="space-y-6 flex-1">
               <div>
-                <h3 className="text-xs font-black uppercase tracking-[0.4em] text-blue-500 mb-2">Fluxo de Caixa Mensal</h3>
+                <h3 className="text-xs font-black uppercase tracking-[0.4em] text-blue-500 mb-2">{t.dashboard.page.monthlyCashFlow}</h3>
                 <p className="text-3xl font-black text-white tracking-tighter">
                   {formatCurrency(stats.expenses)} <span className="text-slate-600 text-xl font-medium">/ {formatCurrency(stats.totalLimits || 0)}</span>
                 </p>
@@ -669,8 +489,8 @@ export default function DashboardPage() {
               
               <div className="space-y-3">
                 <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  <span>Consumo vs Receita</span>
-                  <span>{stats.totalLimits > 0 ? Math.round((stats.expenses / stats.totalLimits) * 100) : 0}% Utilizado</span>
+                  <span>{t.dashboard.page.consumptionVsIncome}</span>
+                  <span>{stats.totalLimits > 0 ? Math.round((stats.expenses / stats.totalLimits) * 100) : 0}% {t.dashboard.page.used}</span>
                 </div>
                 <div className="h-4 w-full bg-white/5 rounded-2xl p-1 border border-white/5">
                   <motion.div 
@@ -688,11 +508,11 @@ export default function DashboardPage() {
             <div className="w-px h-24 bg-white/5 hidden md:block" />
 
             <div className="space-y-2 text-center md:text-right">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Margem Diária</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.page.dailyAllowance}</p>
               <p className={`text-4xl font-black tracking-tighter ${stats.dailyAllowance > 20 ? 'text-emerald-400' : 'text-amber-400'}`}>
                 {formatCurrency(stats.dailyAllowance || 0)}
               </p>
-              <p className="text-[9px] font-bold text-slate-600 uppercase italic">Podes gastar por dia até ao fim do mês</p>
+              <p className="text-[9px] font-bold text-slate-600 uppercase italic">{t.dashboard.page.dailyAllowanceDesc}</p>
             </div>
           </div>
         </motion.div>
@@ -703,7 +523,7 @@ export default function DashboardPage() {
           className="bg-slate-900/40 backdrop-blur-xl p-10 rounded-[48px] border border-white/5 shadow-2xl flex flex-col justify-between group"
         >
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 text-center">Eficiência Zen</h3>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 text-center">{t.dashboard.page.efficiency}</h3>
             <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
               <Zap size={16} />
             </div>
@@ -737,14 +557,14 @@ export default function DashboardPage() {
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-2xl font-black text-white leading-none">{Math.round(stats.efficiencyScore || 0)}%</span>
-                <span className="text-[8px] font-black uppercase text-slate-500 mt-1">Score</span>
+                <span className="text-[8px] font-black uppercase text-slate-500 mt-1">{t.dashboard.page.score}</span>
               </div>
             </div>
             
             <p className="text-center text-xs text-slate-400 font-medium italic mt-2 px-4 leading-relaxed">
-              {stats.efficiencyScore > 30 ? 'Excelente! Estás a transformar receita em património com mestria.' : 
-               stats.efficiencyScore > 10 ? 'Bom ritmo. Continua a focar-te em reduzir o consumo supérfluo.' :
-               'Foco total: O teu consumo está a absorver quase toda a tua receita.'}
+              {stats.efficiencyScore > 30 ? t.dashboard.page.efficiencyMessages.excellent : 
+               stats.efficiencyScore > 10 ? t.dashboard.page.efficiencyMessages.good :
+               t.dashboard.page.efficiencyMessages.focus}
             </p>
           </div>
         </motion.div>
@@ -764,8 +584,8 @@ export default function DashboardPage() {
             <ZapIcon size={32} className="text-white fill-white" />
           </div>
           <div className="flex-1 text-center md:text-left space-y-2">
-            <h3 className="text-xl font-black uppercase tracking-tight text-white">Bot Telegram: Registo Ultra-Rápido</h3>
-            <p className="text-sm text-slate-400 font-medium italic">Regista despesas por texto ou fotos de recibos em 2 segundos sem abrir a app.</p>
+            <h3 className="text-xl font-black uppercase tracking-tight text-white">{t.dashboard.page.telegramBot}</h3>
+            <p className="text-sm text-slate-400 font-medium italic">{t.dashboard.page.telegramDesc}</p>
           </div>
           <a 
             href="https://t.me/FinlyApp_bot" 
@@ -773,7 +593,7 @@ export default function DashboardPage() {
             rel="noopener noreferrer"
             className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] whitespace-nowrap"
           >
-            Associar com Telegram
+            {t.dashboard.page.associateTelegram}
           </a>
         </div>
       </motion.div>
@@ -789,7 +609,7 @@ export default function DashboardPage() {
           >
             <div className="flex items-center gap-3 px-2 mb-4">
               <AlertCircle size={18} className="text-red-500" />
-              <h2 className="text-[10px] font-black tracking-[0.4em] text-slate-500 uppercase">Alertas Críticos</h2>
+              <h2 className="text-[10px] font-black tracking-[0.4em] text-slate-500 uppercase">{t.dashboard.page.alerts}</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {alerts.map((alert, idx) => (
@@ -839,25 +659,25 @@ export default function DashboardPage() {
         
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-4">
           <div>
-            <h2 className="text-[10px] font-black tracking-[0.4em] text-slate-500 uppercase mb-1">Ritmo de Consumo Diário</h2>
-            <p className="text-xs text-slate-400 font-medium italic">Monitorização de picos vs. Margem de Segurança</p>
+            <h2 className="text-[10px] font-black tracking-[0.4em] text-slate-500 uppercase mb-1">{t.dashboard.page.dailyConsumption}</h2>
+            <p className="text-xs text-slate-400 font-medium italic">{t.dashboard.page.dailyConsumptionDesc}</p>
           </div>
           
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Gastos</span>
+              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t.dashboard.page.spending}</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-px border-t border-dashed border-red-500/50" />
-              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Limite Diário</span>
+              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t.dashboard.page.dailyLimit}</span>
             </div>
           </div>
         </div>
 
         <div className="h-[400px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trendData} margin={{ top: 20, right: 30, left: 0, bottom: 40 }}>
+            <LazyAreaChart data={trendData} margin={{ top: 20, right: 30, left: 0, bottom: 40 }}>
               <defs>
                 <linearGradient id="colorSpend" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -898,8 +718,8 @@ export default function DashboardPage() {
                   padding: '16px 24px'
                 }}
                 itemStyle={{ color: '#fff', fontWeight: '900', fontSize: '12px', textTransform: 'uppercase' }}
-                formatter={(value: number) => [formatCurrency(value), 'Gasto']}
-                labelFormatter={(label) => `Dia ${label}`}
+                formatter={(value: number) => [formatCurrency(value), t.dashboard.page.chartSpent]}
+                labelFormatter={(label) => `${t.dashboard.page.chartDay} ${label}`}
               />
               {/* ReferenceLine ANTES do Area para garantir que está visível */}
               {stats.dailyAllowance > 0 && (
@@ -912,7 +732,7 @@ export default function DashboardPage() {
                   isFront={true}
                   label={{ 
                     position: 'topRight', 
-                    value: `LIMITE: ${formatCurrency(stats.dailyAllowance)}`, 
+                    value: `${t.dashboard.page.chartLimit}: ${formatCurrency(stats.dailyAllowance)}`, 
                     fill: '#ef4444', 
                     fontSize: 9, 
                     fontWeight: '900',
@@ -921,7 +741,7 @@ export default function DashboardPage() {
                   }} 
                 />
               )}
-              <Area 
+              <LazyArea 
                 type="monotone" 
                 dataKey="amount" 
                 stroke="#3b82f6" 
@@ -930,7 +750,7 @@ export default function DashboardPage() {
                 fill="url(#colorSpend)" 
                 animationDuration={2000}
               />
-            </AreaChart>
+            </LazyAreaChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -950,10 +770,10 @@ export default function DashboardPage() {
             </div>
             <div className="text-center space-y-2 relative z-10">
               <h2 className="text-xl font-black text-white uppercase tracking-[0.3em] animate-pulse">
-                A processar <span className="text-blue-500">Upgrade</span>...
+                {t.dashboard.loading.processingUpgrade} <span className="text-blue-500">{t.dashboard.page.upgradePro}</span>...
               </h2>
               <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest italic">
-                Preparamos o teu novo ecossistema Zen
+                {t.dashboard.loading.preparingEcosystem}
               </p>
             </div>
           </motion.div>
@@ -1001,25 +821,25 @@ export default function DashboardPage() {
               </motion.div>
 
               <h2 className="text-5xl font-black text-white tracking-tighter mb-6 uppercase">
-                Bem-vindo à <br />
-                <span className="text-amber-500 italic">Elite Finly</span>
+                {t.dashboard.page.welcomePro} <br />
+                <span className="text-amber-500 italic">{t.dashboard.page.eliteFinly}</span>
               </h2>
               
               <div className="flex items-center justify-center gap-3 mb-10 text-amber-500/60 bg-amber-500/5 py-2 px-6 rounded-full w-fit mx-auto border border-amber-500/10">
                 <Star size={14} fill="currentColor" />
-                <span className="text-xs font-black uppercase tracking-[0.5em]">Mestre Zen Pro</span>
+                <span className="text-xs font-black uppercase tracking-[0.5em]">{t.dashboard.page.masterZenPro}</span>
                 <Star size={14} fill="currentColor" />
               </div>
 
               <p className="text-slate-400 font-medium italic text-xl leading-relaxed mb-12 max-w-md mx-auto">
-                Parabéns! Acabas de desbloquear o poder máximo. IA ilimitada e suporte 24/7 agora ao teu serviço.
+                {t.dashboard.page.congratulations}
               </p>
 
               <button
                 onClick={() => setShowUpgradeSuccess(false)}
                 className="w-full py-7 bg-amber-500 hover:bg-amber-400 text-black rounded-[32px] font-black uppercase tracking-[0.4em] text-sm transition-all shadow-[0_20px_40px_-10px_rgba(245,158,11,0.4)] active:scale-[0.98] cursor-pointer"
               >
-                Explorar Funções Pro
+                {t.dashboard.page.explorePro}
               </button>
             </motion.div>
           </div>

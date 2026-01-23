@@ -8,12 +8,14 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
+    language: Optional[str] = 'pt'
 
 class UserResponse(UserBase):
     id: UUID
     full_name: Optional[str] = None
     phone_number: Optional[str] = None
     currency: str
+    language: str = 'pt'
     gender: Optional[str] = None
     is_active: bool
     is_admin: bool
@@ -34,6 +36,9 @@ class UserUpdateOnboarding(BaseModel):
     currency: str
     gender: str
     marketing_opt_in: bool = False
+
+class UserUpdateLanguage(BaseModel):
+    language: str
 
 class Token(BaseModel):
     access_token: str
@@ -58,6 +63,7 @@ class PasswordResetConfirm(BaseModel):
 class SocialLoginRequest(BaseModel):
     token: str
     provider: str
+    language: Optional[str] = 'pt'
 
 class CategoryBase(BaseModel):
     name: str
@@ -177,6 +183,46 @@ class AnalyticsCompositeResponse(BaseModel):
     categories: List[CategoryResponse]
     insights: ZenInsightsResponse
     recurring: List[RecurringTransactionResponse]
+    currency: str
+
+class FinancialSnapshotResponse(BaseModel):
+    """
+    Snapshot financeiro estável - fonte de verdade.
+    Esta estrutura NÃO deve mudar para acomodar UI específica.
+    """
+    income: float
+    expenses: float
+    vault_total: float
+    vault_emergency: float
+    vault_investment: float
+    available_cash: float
+    net_worth: float
+    saving_rate: float
+    cumulative_balance: float
+    daily_allowance: float
+    remaining_money: float
+    days_left: int
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
+    transaction_count: int
+
+class DashboardCollectionsResponse(BaseModel):
+    """
+    Collections descartáveis para UI específica.
+    Pode mudar conforme necessidades da UI.
+    """
+    recent_transactions: List[TransactionResponse]
+    categories: List[CategoryResponse]
+    recurring: List[RecurringTransactionResponse]
+
+class DashboardSnapshotResponse(BaseModel):
+    """
+    Resposta do endpoint /dashboard/snapshot
+    Estrutura clara: snapshot (estável) vs collections (descartável)
+    """
+    version: str = "1.0"
+    snapshot: FinancialSnapshotResponse
+    collections: DashboardCollectionsResponse
     currency: str
 
 class AuditLogResponse(BaseModel):

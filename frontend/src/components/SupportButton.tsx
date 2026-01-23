@@ -30,11 +30,11 @@ export default function SupportButton() {
   const message = encodeURIComponent(t.dashboard.support.message);
   // Garante que o número final no link está perfeitamente limpo
   const finalNumber = telegramNumber.replace(/\D/g, '');
-  const telegramUrl = `https://t.me/${finalNumber}?text=${message}`;
+  const whatsappUrl = `https://wa.me/${finalNumber}?text=${message}`;
 
   return (
     <motion.a
-      href={telegramUrl}
+      href={whatsappUrl}
       target="_blank"
       rel="noopener noreferrer"
       initial={{ opacity: 0, scale: 0.5, x: 20 }}

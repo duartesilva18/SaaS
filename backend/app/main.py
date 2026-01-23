@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import auth, categories, transactions, stripe as stripe_routes, insights, recurring, admin, goals
+from .routes import auth, categories, transactions, stripe as stripe_routes, insights, recurring, admin, goals, dashboard
 from .webhooks import stripe as stripe_webhooks, whatsapp as whatsapp_webhooks, telegram as telegram_webhooks
 from .webhooks.telegram import setup_bot_commands
 from .models.database import Base, SystemSetting
@@ -162,6 +162,7 @@ app.include_router(insights.router)
 app.include_router(recurring.router)
 app.include_router(admin.router)
 app.include_router(goals.router)
+app.include_router(dashboard.router)
 app.include_router(stripe_routes.router)
 app.include_router(stripe_webhooks.router)
 app.include_router(whatsapp_webhooks.router)

@@ -27,7 +27,8 @@ export default function AnalyticsPage() {
   const [isPro, setIsPro] = useState(false);
   const [rawData, setRawData] = useState<{ transactions: any[], categories: any[], insights: any, recurring: any[] }>({ transactions: [], categories: [], insights: null, recurring: [] });
   const [processedData, setProcessedData] = useState<any>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState('Tudo');
+  const periods = t.dashboard.analytics.periods;
+  const [selectedPeriod, setSelectedPeriod] = useState('Tudo'); // Will be translated in display
   const [isFlowInfoOpen, setIsFlowInfoOpen] = useState(false);
   const [isDistInfoOpen, setIsDistInfoOpen] = useState(false);
   const [isWeeklyInfoOpen, setIsWeeklyInfoOpen] = useState(false);
@@ -183,9 +184,9 @@ export default function AnalyticsPage() {
       const category = vaultModal.category;
       const amount_cents = Math.round(parseFloat(vaultAmount) * 100);
       
-      // Se é adicionar: amount negativo (depósito)
-      // Se é retirar: amount positivo (resgate)
-      const finalAmount = vaultModal.action === 'add' ? -Math.abs(amount_cents) : Math.abs(amount_cents);
+      // Se é adicionar: amount positivo (depósito/poupança)
+      // Se é retirar: amount negativo (resgate/despesa)
+      const finalAmount = vaultModal.action === 'add' ? Math.abs(amount_cents) : -Math.abs(amount_cents);
 
       // Verificar saldo se for resgate - VALIDAÇÃO RIGOROSA
       if (vaultModal.action === 'withdraw') {
@@ -194,18 +195,19 @@ export default function AnalyticsPage() {
           return cat && cat.id === category.id;
         });
         
-        // Calcular saldo atual: depósitos (negativos) aumentam, resgates (positivos) diminuem
+        // Calcular saldo atual: depósitos (positivos) aumentam, resgates (negativos) diminuem
         const currentBalance = vaultTransactions.reduce((balance: number, t: any) => {
-          if (t.amount_cents < 0) {
-            // Depósito: adicionar valor absoluto
-            return balance + Math.abs(t.amount_cents);
+          if (t.amount_cents > 0) {
+            // Depósito: adicionar valor
+            return balance + t.amount_cents;
           } else {
-            // Resgate: subtrair
-            return balance - t.amount_cents;
+            // Resgate: subtrair valor absoluto
+            return balance - Math.abs(t.amount_cents);
           }
         }, 0);
         
         // Verificar se o resgate não deixa o saldo negativo
+        // Como agora resgate é negativo, subtraímos o valor absoluto
         const balanceAfterWithdrawal = currentBalance - amount_cents;
         
         if (amount_cents > currentBalance || balanceAfterWithdrawal < 0) {
@@ -214,18 +216,11 @@ export default function AnalyticsPage() {
           setVaultLoading(false);
           return;
         }
-        
-        // Validação adicional: não permitir resgate que deixe saldo negativo
-        if (balanceAfterWithdrawal < 0) {
-          alert(`❌ Operação inválida!\n\nO resgate deixaria o cofre com saldo negativo.\nDisponível: ${formatCurrency(parseFloat((currentBalance / 100).toFixed(2)))}`);
-          setVaultLoading(false);
-          return;
-        }
       }
 
       const payload = {
         amount_cents: finalAmount,
-        description: vaultModal.action === 'add' ? `Depósito em ${category.name}` : `Resgate de ${category.name}`,
+        description: vaultModal.action === 'add' ? `${t.dashboard.vault.depositIn} ${category.name}` : `${t.dashboard.vault.withdrawalFrom} ${category.name}`,
         category_id: category.id,
         transaction_date: new Date().toISOString().split('T')[0],
         is_installment: false
@@ -255,7 +250,7 @@ export default function AnalyticsPage() {
     else if (selectedPeriod === '30D') filterDate.setDate(now.getDate() - 30);
     else if (selectedPeriod === '90D') filterDate.setDate(now.getDate() - 90);
     else if (selectedPeriod === '12M') filterDate.setFullYear(now.getFullYear() - 1);
-    else filterDate = new Date(0); // Tudo
+    else filterDate = new Date(0); // All/Tudo
 
     const filteredTransactions = rawData.transactions.filter((t: any) => {
       const transDate = new Date(t.transaction_date);
@@ -265,8 +260,25 @@ export default function AnalyticsPage() {
     // Process data for charts
     const monthlyData: any = {};
     const catDistribution: any = {};
-    const weeklyRhythm: any = { 'Seg': 0, 'Ter': 0, 'Qua': 0, 'Qui': 0, 'Sex': 0, 'Sáb': 0, 'Dom': 0 };
-    const weekMap: any = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' };
+    const weekDays = t.dashboard.analytics.weekDays;
+    const weeklyRhythm: any = { 
+      [weekDays.mon]: 0, 
+      [weekDays.tue]: 0, 
+      [weekDays.wed]: 0, 
+      [weekDays.thu]: 0, 
+      [weekDays.fri]: 0, 
+      [weekDays.sat]: 0, 
+      [weekDays.sun]: 0 
+    };
+    const weekMap: any = { 
+      0: weekDays.sun, 
+      1: weekDays.mon, 
+      2: weekDays.tue, 
+      3: weekDays.wed, 
+      4: weekDays.thu, 
+      5: weekDays.fri, 
+      6: weekDays.sat 
+    };
     
     let periodIncome = 0;
     let periodExpenses = 0;
@@ -366,7 +378,7 @@ export default function AnalyticsPage() {
       .reverse()
       .slice(0, 5)
       .map((t: any) => ({
-        name: t.description || 'Sem descrição',
+        name: t.description || t.dashboard.analytics.noDescription,
         value: Math.abs(t.amount_cents) / 100 // Mostrar valor absoluto (positivo)
       }));
 
@@ -377,34 +389,39 @@ export default function AnalyticsPage() {
       const amount = t.amount_cents / 100;
       
       // Calculate Vault totals (all time)
-      // IMPORTANTE: amount_cents negativo = depósito (adiciona ao vault), amount_cents positivo = resgate (subtrai do vault)
+      // IMPORTANTE: amount_cents positivo = depósito (adiciona ao vault), amount_cents negativo = resgate (subtrai do vault)
       if (cat?.vault_type === 'investment') {
-        if (t.amount_cents < 0) {
-          // Depósito: amount_cents negativo, adicionar valor absoluto
-          investmentTotal += Math.abs(t.amount_cents / 100);
+        if (t.amount_cents > 0) {
+          // Depósito: amount_cents positivo, adicionar valor
+          investmentTotal += t.amount_cents / 100;
         } else {
-          // Resgate: amount_cents positivo, subtrair
-          investmentTotal -= t.amount_cents / 100;
+          // Resgate: amount_cents negativo, subtrair valor absoluto
+          investmentTotal -= Math.abs(t.amount_cents / 100);
         }
       }
       if (cat?.vault_type === 'emergency') {
-        if (t.amount_cents < 0) {
-          // Depósito: amount_cents negativo, adicionar valor absoluto
-          emergencyTotal += Math.abs(t.amount_cents / 100);
+        if (t.amount_cents > 0) {
+          // Depósito: amount_cents positivo, adicionar valor
+          emergencyTotal += t.amount_cents / 100;
         } else {
-          // Resgate: amount_cents positivo, subtrair
-          emergencyTotal -= t.amount_cents / 100;
+          // Resgate: amount_cents negativo, subtrair valor absoluto
+          emergencyTotal -= Math.abs(t.amount_cents / 100);
         }
       }
 
-      // Património Acumulado: Não subtrair investimentos (pois o dinheiro ainda é seu)
-      if (cat?.type === 'income') {
+      // Património Acumulado: Apenas receitas - despesas de consumo (fluxo de caixa)
+      // Vault transactions NÃO são incluídas porque:
+      // - Depósito no vault: dinheiro sai do saldo disponível mas fica no vault (património não muda)
+      // - Resgate do vault: dinheiro volta ao saldo disponível (património não muda)
+      if (cat?.type === 'income' && cat?.vault_type === 'none') {
+        // Receitas aumentam o património (backend garante que é positivo)
         cumulativeBalance += amount;
-      } else if (cat?.vault_type === 'none') {
-        // Apenas subtrair despesas de consumo
-        cumulativeBalance -= amount;
+      } else if (cat?.type === 'expense' && cat?.vault_type === 'none') {
+        // VALIDAÇÃO EXPLÍCITA: Apenas subtrair despesas de consumo
+        // Backend garante que é negativo, converter para positivo antes de subtrair
+        cumulativeBalance -= -amount; // Converte negativo para positivo
       }
-      // Se for despesa de investimento/emergência, o saldo acumulado (património) não desce
+      // Se for transação de investimento/emergência (vault) ou tipo desconhecido, não altera o cumulativeBalance
       
       evolutionData.push({
         date: t.transaction_date,
@@ -426,37 +443,68 @@ export default function AnalyticsPage() {
         monthlyData[monthYear] = { name: monthYear, income: 0, expenses: 0 };
       }
       
+      // Backend garante sinais corretos:
+      // income: amount_cents > 0
+      // expense: amount_cents < 0
+      // Frontend confia nos sinais (sem Math.abs() nos cálculos)
       const amount = t.amount_cents / 100;
       
       if (cat) {
-        if (cat.type === 'income') {
-          monthlyData[monthYear].income += amount;
+        if (cat.type === 'income' && cat.vault_type === 'none') {
+          // Receitas são positivas (backend garante)
+          monthlyData[monthYear].income += amount; // Já é positivo
           periodIncome += amount;
-        } else {
-          const absAmount = Math.abs(amount); // Usar valor absoluto para despesas
-          monthlyData[monthYear].expenses += absAmount;
-          periodExpenses += absAmount;
-          catDistribution[cat.name] = (catDistribution[cat.name] || 0) + absAmount;
-          weeklyRhythm[dayName] += absAmount;
+        } else if (cat.type === 'expense' && cat.vault_type === 'none') {
+          // Despesas são negativas (backend garante), converter para positivo
+          const expenseAmount = -amount; // Converte negativo para positivo
+          monthlyData[monthYear].expenses += expenseAmount;
+          periodExpenses += expenseAmount;
+          catDistribution[cat.name] = (catDistribution[cat.name] || 0) + expenseAmount;
+          weeklyRhythm[dayName] += expenseAmount;
         }
+        // Vault transactions já foram excluídas acima (return)
       } else {
-        const absAmount = Math.abs(amount); // Usar valor absoluto para despesas
-        monthlyData[monthYear].expenses += absAmount;
-        periodExpenses += absAmount;
-        catDistribution['Outros'] = (catDistribution['Outros'] || 0) + absAmount;
-        weeklyRhythm[dayName] += absAmount;
+        // Categoria não encontrada - tratar como despesa
+        // Assumir que é negativa (despesa) e converter para positivo
+        const expenseAmount = amount < 0 ? -amount : amount; // Se negativo, converter; se positivo, manter
+        monthlyData[monthYear].expenses += expenseAmount;
+        periodExpenses += expenseAmount;
+        catDistribution[t.dashboard.analytics.others] = (catDistribution[t.dashboard.analytics.others] || 0) + expenseAmount;
+        weeklyRhythm[dayName] += expenseAmount;
       }
     });
 
     // Calcular Saving Rate para o período selecionado
-    const savingRate = periodIncome > 0 ? ((periodIncome - periodExpenses) / periodIncome) * 100 : 0;
+    // Clamp entre -100% e 100% para evitar valores extremos
+    // Threshold mínimo para considerar representativo
+    const MIN_INCOME_THRESHOLD = 100; // 1€ mínimo
+    let savingRate = 0;
+    if (periodIncome >= MIN_INCOME_THRESHOLD) {
+      const calculated = ((periodIncome - periodExpenses) / periodIncome) * 100;
+      savingRate = Math.max(-100, Math.min(100, calculated)); // Clamp entre -100% e 100%
+    }
+    // Se periodIncome < threshold, savingRate = 0 (não representativo)
 
     // Calcular um Health Score dinâmico simplificado para o período
-    let dynamicScore = 70;
+    // Validações melhoradas para evitar scores inválidos
+    let dynamicScore = 70; // Base neutra
     if (periodIncome > 0) {
-      if (periodExpenses > periodIncome) dynamicScore = 30;
-      else if (savingRate > 20) dynamicScore = 90;
-      else if (savingRate > 10) dynamicScore = 75;
+      if (periodExpenses > periodIncome) {
+        // Défice: score baixo
+        dynamicScore = Math.max(10, 30 - Math.min(20, Math.abs(savingRate) / 5)); // Penaliza défices grandes
+      } else if (savingRate > 20) {
+        dynamicScore = 90; // Excelente poupança
+      } else if (savingRate > 10) {
+        dynamicScore = 75; // Boa poupança
+      } else if (savingRate > 0) {
+        dynamicScore = 60; // Poupança positiva mas baixa
+      } else {
+        // savingRate <= 0 mas expenses <= income (pode acontecer com clamp)
+        dynamicScore = 50;
+      }
+    } else if (periodIncome === 0 && periodExpenses > 0) {
+      // Sem receitas mas há despesas
+      dynamicScore = 20;
     }
 
     setProcessedData({
@@ -504,12 +552,12 @@ export default function AnalyticsPage() {
               <Lock size={20} />
             </div>
             <div>
-              <h3 className="text-sm font-black uppercase text-black leading-none mb-1">Modo de Demonstração</h3>
-              <p className="text-[10px] font-bold text-black/70 uppercase tracking-widest">Estás a ver dados mock. Ativa o plano Pro para veres os teus dados reais.</p>
+              <h3 className="text-sm font-black uppercase text-black leading-none mb-1">{t.dashboard.analytics.demoMode}</h3>
+              <p className="text-[10px] font-bold text-black/70 uppercase tracking-widest">{t.dashboard.analytics.demoModeText}</p>
             </div>
           </div>
           <Link href="/pricing" className="bg-black text-white px-8 py-3 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] hover:scale-105 transition-all shadow-xl">
-            Ativar Plano Pro Agora
+            {t.dashboard.analytics.activateProNow}
           </Link>
         </div>
       )}
@@ -543,19 +591,19 @@ export default function AnalyticsPage() {
         <div className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-6 rounded-[32px] group hover:border-blue-500/30 transition-all">
           <div className="flex items-center justify-between mb-4">
             <Activity className="text-blue-500" size={20} />
-            <div className="px-2 py-1 bg-blue-500/10 rounded-lg text-[9px] font-black text-blue-400 uppercase">Saúde</div>
+            <div className="px-2 py-1 bg-blue-500/10 rounded-lg text-[9px] font-black text-blue-400 uppercase">{t.dashboard.analytics.health}</div>
           </div>
           <p className="text-3xl font-black text-white mb-1">{processedData.healthScore}%</p>
-          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Score Financeiro</p>
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.dashboard.analytics.financialScore}</p>
         </div>
 
         <div className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-6 rounded-[32px] group hover:border-emerald-500/30 transition-all">
           <div className="flex items-center justify-between mb-4">
             <Target className="text-emerald-500" size={20} />
-            <div className="px-2 py-1 bg-emerald-500/10 rounded-lg text-[9px] font-black text-emerald-400 uppercase">Meta</div>
+            <div className="px-2 py-1 bg-emerald-500/10 rounded-lg text-[9px] font-black text-emerald-400 uppercase">{t.dashboard.analytics.target}</div>
           </div>
           <p className="text-3xl font-black text-white mb-1">{processedData.savingRate}%</p>
-          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Taxa de Poupança</p>
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.dashboard.analytics.savingsRate}</p>
         </div>
 
         <div className="md:col-span-2 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-[32px] relative overflow-hidden shadow-2xl shadow-blue-600/20">
@@ -576,16 +624,16 @@ export default function AnalyticsPage() {
       <div className="flex flex-wrap items-center gap-4 bg-slate-900/40 backdrop-blur-xl border border-slate-800 p-4 rounded-[24px]">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-xl">
           <Calendar size={14} className="text-blue-500" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Filtros de Período</span>
+          <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">{t.dashboard.analytics.periodFilters}</span>
         </div>
         
         <div className="flex items-center gap-2">
-          {['7D', '30D', '90D', '12M', 'Tudo'].map((period) => (
+          {Object.entries(periods).map(([key, period]) => (
             <button
-              key={period}
-              onClick={() => setSelectedPeriod(period)}
+              key={key}
+              onClick={() => setSelectedPeriod(key)}
               className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer border ${
-                selectedPeriod === period 
+                selectedPeriod === key
                 ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' 
                 : 'bg-slate-900/50 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300'
               }`}
@@ -600,7 +648,7 @@ export default function AnalyticsPage() {
         <div className="flex items-center gap-2">
           <button className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-slate-900/50 border border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300 transition-all cursor-pointer flex items-center gap-2">
             <PieChartIcon size={12} />
-            Todas as Categorias
+            {t.dashboard.analytics.allCategories}
           </button>
         </div>
       </div>
@@ -613,7 +661,7 @@ export default function AnalyticsPage() {
             <div className="flex items-center gap-3">
               <div>
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">{t.dashboard.analytics.spendingOverTime}</h3>
-                <p className="text-xs text-slate-500 font-medium italic">Histórico de Fluxo de Caixa</p>
+                <p className="text-xs text-slate-500 font-medium italic">{t.dashboard.analytics.cashFlowHistory}</p>
               </div>
               
               <div 
@@ -634,8 +682,7 @@ export default function AnalyticsPage() {
                       className="absolute top-full left-0 mt-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl pointer-events-none z-20"
                     >
                       <p className="text-[10px] leading-relaxed text-slate-400 font-medium">
-                        Este gráfico compara as tuas <span className="text-emerald-400">Receitas</span> (verde) com as tuas <span className="text-red-400">Despesas</span> (vermelho) ao longo do tempo. 
-                        Ajuda a visualizar meses de poupança positiva vs. meses de défice.
+                        {t.dashboard.analytics.flowChartInfo}
                       </p>
                       <div className="absolute bottom-full left-4 border-[6px] border-transparent border-b-slate-800" />
                     </motion.div>
@@ -678,7 +725,7 @@ export default function AnalyticsPage() {
             <div className="flex items-center gap-3">
               <div>
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">{t.dashboard.analytics.categoryDistribution}</h3>
-                <p className="text-xs text-slate-500 font-medium italic">Onde aplicas a tua energia financeira</p>
+                <p className="text-xs text-slate-500 font-medium italic">{t.dashboard.analytics.categoryEnergy}</p>
               </div>
 
               <div 
@@ -699,8 +746,7 @@ export default function AnalyticsPage() {
                       className="absolute top-full left-0 mt-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl pointer-events-none z-20"
                     >
                       <p className="text-[10px] leading-relaxed text-slate-400 font-medium">
-                        Este gráfico de donut mostra a percentagem de despesas em cada categoria. 
-                        Cores diferentes ajudam a identificar rapidamente quais as áreas que consomem mais recursos do teu orçamento.
+                        {t.dashboard.analytics.distributionChartInfo}
                       </p>
                       <div className="absolute bottom-full left-4 border-[6px] border-transparent border-b-slate-800" />
                     </motion.div>
@@ -745,8 +791,8 @@ export default function AnalyticsPage() {
           <div className="flex items-center justify-between mb-10">
             <div className="flex items-center gap-3">
               <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">Ritmo Semanal</h3>
-                <p className="text-xs text-slate-500 font-medium italic">Distribuição de gastos por dia da semana</p>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">{t.dashboard.analytics.weeklyRhythm}</h3>
+                <p className="text-xs text-slate-500 font-medium italic">{t.dashboard.analytics.weeklyRhythmSubtitle}</p>
               </div>
 
               <div 
@@ -767,8 +813,7 @@ export default function AnalyticsPage() {
                       className="absolute top-full left-0 mt-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl pointer-events-none z-20"
                     >
                       <p className="text-[10px] leading-relaxed text-slate-400 font-medium">
-                        Identifica em que dias da semana o teu dinheiro "foge" mais depressa. 
-                        Ajuda a detetar padrões de gastos excessivos em fins de semana ou dias específicos de rotina.
+                        {t.dashboard.analytics.weeklyRhythmInfo}
                       </p>
                       <div className="absolute bottom-full left-4 border-[6px] border-transparent border-b-slate-800" />
                     </motion.div>
@@ -805,8 +850,8 @@ export default function AnalyticsPage() {
           <div className="flex items-center justify-between mb-10">
             <div className="flex items-center gap-3">
               <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">Pesos Pesados</h3>
-                <p className="text-xs text-slate-500 font-medium italic">As tuas 5 maiores despesas do período</p>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">{t.dashboard.analytics.topExpenses}</h3>
+                <p className="text-xs text-slate-500 font-medium italic">{t.dashboard.analytics.topExpensesSubtitle}</p>
               </div>
 
               <div 
@@ -827,8 +872,7 @@ export default function AnalyticsPage() {
                       className="absolute top-full left-0 mt-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl pointer-events-none z-20"
                     >
                       <p className="text-[10px] leading-relaxed text-slate-400 font-medium">
-                        Um olhar direto sobre as transações que mais impacto tiveram no teu saldo este mês. 
-                        Estes são os teus principais alvos para otimização.
+                        {t.dashboard.analytics.topExpensesInfo}
                       </p>
                       <div className="absolute bottom-full left-4 border-[6px] border-transparent border-b-slate-800" />
                     </motion.div>
@@ -856,7 +900,7 @@ export default function AnalyticsPage() {
               </div>
             ))}
             {processedData.topExpenses.length === 0 && (
-              <p className="text-center text-slate-500 text-xs italic py-10">Sem despesas registadas no período.</p>
+              <p className="text-center text-slate-500 text-xs italic py-10">{t.dashboard.analytics.noExpenses}</p>
             )}
           </div>
         </section>
@@ -870,8 +914,8 @@ export default function AnalyticsPage() {
           <div className="flex items-center justify-between mb-10">
             <div className="flex items-center gap-3">
               <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">Evolução de Património</h3>
-                <p className="text-xs text-slate-500 font-medium italic">Crescimento acumulado ao longo do tempo</p>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">{t.dashboard.analytics.evolution}</h3>
+                <p className="text-xs text-slate-500 font-medium italic">{t.dashboard.analytics.evolutionSubtitle}</p>
               </div>
               <div 
                 className="relative"
@@ -887,7 +931,7 @@ export default function AnalyticsPage() {
                       initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
                       className="absolute top-full left-0 mt-3 w-64 p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-20 pointer-events-none"
                     >
-                      <p className="text-[10px] text-slate-400">Este gráfico mostra o saldo acumulado total. É a métrica definitiva do teu progresso financeiro a longo prazo.</p>
+                      <p className="text-[10px] text-slate-400">{t.dashboard.analytics.evolutionInfo}</p>
                       <div className="absolute bottom-full left-4 border-[6px] border-transparent border-b-slate-800" />
                     </motion.div>
                   )}
@@ -929,8 +973,8 @@ export default function AnalyticsPage() {
                 <Landmark size={20} />
               </div>
               <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">Cofre de Reservas</h3>
-                <p className="text-xs text-slate-500 font-medium italic">Segurança e Investimento</p>
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50 mb-1">{t.dashboard.analytics.vaultTitle}</h3>
+                <p className="text-xs text-slate-500 font-medium italic">{t.dashboard.analytics.vaultSubtitle}</p>
               </div>
             </div>
           </div>
@@ -946,7 +990,7 @@ export default function AnalyticsPage() {
                     whileHover={{ scale: 1.02 }}
                     className="bg-white/5 border border-white/5 p-4 rounded-3xl relative group"
                   >
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Fundo de Emergência</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">{t.dashboard.analytics.emergencyFund}</p>
                     <p className="text-lg font-black text-white text-center mb-3">{formatCurrency(processedData.emergencyTotal)}</p>
                     <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden mb-3">
                       <div 
@@ -961,14 +1005,14 @@ export default function AnalyticsPage() {
                           className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-xl transition-all group/btn cursor-pointer"
                         >
                           <Plus size={14} className="text-blue-400 group-hover/btn:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Adicionar</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">{t.dashboard.analytics.add}</span>
                         </button>
                         <button
                           onClick={() => setVaultModal({ open: true, category: emergencyCategory, action: 'withdraw' })}
                           className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl transition-all group/btn cursor-pointer"
                         >
                           <Minus size={14} className="text-red-400 group-hover/btn:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">Retirar</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">{t.dashboard.analytics.withdraw}</span>
                         </button>
                       </div>
                     )}
@@ -977,7 +1021,7 @@ export default function AnalyticsPage() {
                     whileHover={{ scale: 1.02 }}
                     className="bg-white/5 border border-white/5 p-4 rounded-3xl relative group"
                   >
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">Investimentos Zen</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 text-center">{t.dashboard.analytics.zenInvestments}</p>
                     <p className="text-lg font-black text-emerald-400 text-center mb-3">{formatCurrency(processedData.investmentTotal)}</p>
                     <div className="w-full h-1 bg-slate-800 rounded-full mt-3 overflow-hidden mb-3">
                       <div 
@@ -992,14 +1036,14 @@ export default function AnalyticsPage() {
                           className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl transition-all group/btn cursor-pointer"
                         >
                           <Plus size={14} className="text-emerald-400 group-hover/btn:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Adicionar</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">{t.dashboard.analytics.add}</span>
                         </button>
                         <button
                           onClick={() => setVaultModal({ open: true, category: investmentCategory, action: 'withdraw' })}
                           className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl transition-all group/btn cursor-pointer"
                         >
                           <Minus size={14} className="text-red-400 group-hover/btn:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">Retirar</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">{t.dashboard.analytics.withdraw}</span>
                         </button>
                       </div>
                     )}
@@ -1012,7 +1056,7 @@ export default function AnalyticsPage() {
           <div className="bg-gradient-to-r from-blue-600/10 to-indigo-600/10 border border-blue-500/20 p-4 rounded-2xl flex items-center justify-between">
             <div className="flex items-center gap-3">
               <ShieldCheck size={18} className="text-blue-400" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-white">Taxa de Liberdade</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white">{t.dashboard.analytics.freedomRate}</span>
             </div>
             <span className="text-sm font-black text-blue-400">{(parseFloat(processedData.savingRate) * 1.2).toFixed(1)}%</span>
           </div>
@@ -1025,7 +1069,7 @@ export default function AnalyticsPage() {
         <section className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 rounded-[40px] p-8">
           <div className="flex items-center gap-3 mb-8">
             <Clock className="text-orange-500" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50">Próximos Vencimentos</h3>
+            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50">{t.dashboard.analytics.upcoming}</h3>
           </div>
           <div className="space-y-4">
             {processedData.upcomingPayments.map((p: any, i: number) => (
@@ -1036,9 +1080,9 @@ export default function AnalyticsPage() {
                     <span className="text-sm font-black text-white">{new Date(p.transaction_date).getDate()}</span>
                   </div>
                   <div>
-                    <p className="text-xs font-black text-white">{p.description || 'Sem descrição'}</p>
+                    <p className="text-xs font-black text-white">{p.description || t.dashboard.analytics.noDescription}</p>
                     <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
-                      {p.type === 'recurring' ? 'Recorrente' : 'Agendado'}
+                      {p.type === 'recurring' ? t.dashboard.analytics.recurringType : t.dashboard.analytics.scheduledType}
                     </p>
                   </div>
                 </div>
@@ -1065,7 +1109,7 @@ export default function AnalyticsPage() {
               </div>
             ))}
             {processedData.upcomingPayments.length === 0 && (
-              <p className="text-center text-slate-500 text-xs italic py-10">Sem vencimentos futuros detetados.</p>
+              <p className="text-center text-slate-500 text-xs italic py-10">{t.dashboard.analytics.noUpcomingPayments}</p>
             )}
           </div>
         </section>
@@ -1074,25 +1118,34 @@ export default function AnalyticsPage() {
         <section className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 rounded-[40px] p-8">
           <div className="flex items-center gap-3 mb-8">
             <History className="text-blue-500" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50">Atividade Recente</h3>
+            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50">{t.dashboard.analytics.recentActivity}</h3>
           </div>
           <div className="space-y-4">
-            {processedData.recentTransactions.map((t: any, i: number) => (
-              <div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] rounded-2xl border border-transparent hover:border-white/[0.05] transition-all">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.category?.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                    {t.category?.type === 'income' ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+            {processedData.recentTransactions.map((t: any, i: number) => {
+              // Para transações do cofre: positivo = depósito (receita), negativo = resgate (despesa)
+              // Para transações normais: usar category.type
+              const isVault = t.category?.vault_type && t.category.vault_type !== 'none';
+              const isIncome = isVault 
+                ? t.amount_cents > 0  // Depósito no cofre = receita
+                : t.category?.type === 'income';  // Transação normal
+              
+              return (
+                <div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] rounded-2xl border border-transparent hover:border-white/[0.05] transition-all">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isIncome ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                      {isIncome ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-white truncate max-w-[120px]">{t.description || t.dashboard.analytics.noDescription}</p>
+                      <p className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">{new Date(t.transaction_date).toLocaleDateString()}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-black text-white truncate max-w-[120px]">{t.description || 'Sem descrição'}</p>
-                    <p className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">{new Date(t.transaction_date).toLocaleDateString()}</p>
-                  </div>
+                  <span className={`text-sm font-black ${isIncome ? 'text-emerald-400' : 'text-white'}`}>
+                    {isIncome ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
+                  </span>
                 </div>
-                <span className={`text-sm font-black ${t.category?.type === 'income' ? 'text-emerald-400' : 'text-white'}`}>
-                  {t.category?.type === 'income' ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>
@@ -1117,7 +1170,7 @@ export default function AnalyticsPage() {
             <div className="relative z-10">
               <div className="flex items-center gap-3 mb-6">
                 <Sparkles className="text-blue-400" size={20} />
-                <h3 className="text-sm font-black uppercase tracking-widest text-blue-400">Projeção dos Próximos 3 Meses</h3>
+                <h3 className="text-sm font-black uppercase tracking-widest text-blue-400">{t.dashboard.analytics.projectionNext3Months}</h3>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -1140,15 +1193,15 @@ export default function AnalyticsPage() {
                     </p>
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-400">Receitas</span>
+                        <span className="text-[10px] text-slate-400">{t.dashboard.analytics.income}</span>
                         <span className="text-sm font-black text-emerald-400">+{formatCurrency(month.income)}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-slate-400">Despesas</span>
+                        <span className="text-[10px] text-slate-400">{t.dashboard.analytics.expenses}</span>
                         <span className="text-sm font-black text-red-400">-{formatCurrency(month.expenses)}</span>
                       </div>
                       <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Saldo Projetado</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.analytics.projectedBalance}</span>
                         <span className={`text-lg font-black ${month.balance < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                           {month.balance < 0 ? '-' : '+'}{formatCurrency(Math.abs(month.balance))}
                         </span>
@@ -1161,9 +1214,9 @@ export default function AnalyticsPage() {
               {/* Categorias em Risco */}
               {rawData.insights.predictions.categories_at_risk && rawData.insights.predictions.categories_at_risk.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-slate-800">
-                  <h4 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-4 flex items-center gap-2">
+                    <h4 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-4 flex items-center gap-2">
                     <Info size={14} />
-                    Categorias em Risco (Próximo Mês)
+                    {t.dashboard.analytics.categoriesAtRisk}
                   </h4>
                   <div className="space-y-3">
                     {rawData.insights.predictions.categories_at_risk.slice(0, 3).map((cat: any, idx: number) => (
@@ -1171,12 +1224,12 @@ export default function AnalyticsPage() {
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-sm font-black text-white">{cat.name}</span>
                           <span className={`text-xs font-black ${cat.risk_percent >= 100 ? 'text-red-400' : 'text-amber-400'}`}>
-                            {cat.risk_percent.toFixed(0)}% do limite
+                            {cat.risk_percent.toFixed(0)}% {t.dashboard.analytics.riskPercent}
                           </span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] text-slate-400">
-                          <span>Projeção: {formatCurrency(cat.projected)}</span>
-                          <span>Limite: {formatCurrency(cat.limit)}</span>
+                          <span>{t.dashboard.analytics.projection} {formatCurrency(cat.projected)}</span>
+                          <span>{t.dashboard.analytics.limit} {formatCurrency(cat.limit)}</span>
                         </div>
                         <div className="mt-2 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                           <motion.div
@@ -1250,7 +1303,7 @@ export default function AnalyticsPage() {
               </p>
 
               <button className="mt-auto flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-colors cursor-pointer group">
-                Ver Detalhes <ArrowUpRight size={12} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                {t.dashboard.analytics.viewDetails} <ArrowUpRight size={12} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
               </button>
             </motion.div>
           ))}
@@ -1293,7 +1346,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-white uppercase tracking-widest">
-                      {vaultModal.action === 'add' ? 'Adicionar' : 'Retirar'}
+                      {vaultModal.action === 'add' ? t.dashboard.analytics.add : t.dashboard.analytics.withdraw}
                     </h3>
                     <p className="text-xs text-slate-400">{vaultModal.category.name}</p>
                   </div>
@@ -1315,7 +1368,7 @@ export default function AnalyticsPage() {
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">
-                    Valor (€)
+                    {t.dashboard.analytics.value}
                   </label>
                   <input
                     type="number"
@@ -1346,7 +1399,7 @@ export default function AnalyticsPage() {
                     disabled={vaultLoading}
                     className="flex-1 px-4 py-3 border border-slate-700 text-slate-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-white/5 transition-colors cursor-pointer disabled:opacity-50"
                   >
-                    Cancelar
+                    {t.dashboard.analytics.cancel}
                   </button>
                   <button
                     onClick={handleVaultTransaction}
@@ -1359,7 +1412,7 @@ export default function AnalyticsPage() {
                         : 'bg-red-500 hover:bg-red-400 text-white'
                     }`}
                   >
-                    {vaultLoading ? 'A processar...' : vaultModal.action === 'add' ? 'Adicionar' : 'Retirar'}
+                    {vaultLoading ? t.dashboard.analytics.processing : vaultModal.action === 'add' ? t.dashboard.analytics.add : t.dashboard.analytics.withdraw}
                   </button>
                 </div>
               </div>

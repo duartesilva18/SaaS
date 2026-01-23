@@ -59,10 +59,10 @@ export default function RecurringPage() {
   // Função de validação hoisted
   function validate() {
     const newErrors: Record<string, string> = {};
-    if (!formData.description.trim()) newErrors.description = "Dá um nome ao teu ciclo.";
-    if (!formData.amount || parseFloat(formData.amount) <= 0) newErrors.amount = "O valor deve ser positivo.";
+    if (!formData.description.trim()) newErrors.description = t.dashboard.recurring.validation.nameRequired;
+    if (!formData.amount || parseFloat(formData.amount) <= 0) newErrors.amount = t.dashboard.recurring.validation.positiveAmount;
     if (!formData.day_of_month || formData.day_of_month < 1 || formData.day_of_month > 31) {
-      newErrors.day_of_month = "O dia deve ser entre 1 e 31.";
+      newErrors.day_of_month = t.dashboard.recurring.validation.validDay;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -165,14 +165,22 @@ export default function RecurringPage() {
     }
   };
 
-  const recurringIncomes = recurring.filter(r => allCategories.find(c => c.id === r.category_id)?.type === 'income');
+  // IMPORTANTE: Filtrar por vault_type === 'none' para excluir vault transactions
+  const recurringIncomes = recurring.filter(r => {
+    const cat = allCategories.find(c => c.id === r.category_id);
+    return cat && cat.type === 'income' && cat.vault_type === 'none';
+  });
+  
   const recurringExpenses = recurring.filter(r => {
     const cat = allCategories.find(c => c.id === r.category_id);
-    return !cat || cat.type === 'expense';
+    // Apenas despesas regulares (não vault)
+    return cat && cat.type === 'expense' && cat.vault_type === 'none';
   });
 
-  const totalIncomes = recurringIncomes.reduce((acc, curr) => acc + curr.amount_cents, 0);
-  const totalExpenses = recurringExpenses.reduce((acc, curr) => acc + curr.amount_cents, 0);
+  // Receitas: amount_cents deve ser positivo, usar valor absoluto para segurança
+  // Despesas: amount_cents pode ser negativo, usar valor absoluto
+  const totalIncomes = recurringIncomes.reduce((acc, curr) => acc + Math.abs(curr.amount_cents), 0);
+  const totalExpenses = recurringExpenses.reduce((acc, curr) => acc + Math.abs(curr.amount_cents), 0);
   const netZen = totalIncomes - totalExpenses;
 
   const now = new Date();
@@ -248,10 +256,10 @@ export default function RecurringPage() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 relative z-10">
           <div>
             <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full mb-6 text-blue-400 text-[10px] font-black uppercase tracking-widest">
-              Subscrições Mensais
+              {t.dashboard.recurring.title}
             </div>
             <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none uppercase">
-              Minhas <span className="text-blue-500 italic">Subscrições</span>
+              {t.dashboard.recurring.mySubscriptions} <span className="text-blue-500 italic">{t.dashboard.recurring.subscriptionsAccent}</span>
             </h1>
           </div>
           <div className="flex flex-col lg:flex-row items-end gap-4">
@@ -265,7 +273,7 @@ export default function RecurringPage() {
                   <div className="w-8 h-8 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
                     <ArrowUpCircle size={18} />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest">Receita Fixa</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">{t.dashboard.recurring.fixedIncome}</span>
                 </div>
                 <p className="text-4xl font-black text-white tracking-tighter">{formatCurrency(totalIncomes / 100)}</p>
                 <div className="mt-2 h-1 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -282,7 +290,7 @@ export default function RecurringPage() {
                   <div className="w-8 h-8 bg-red-500/10 rounded-xl flex items-center justify-center text-red-500">
                     <ArrowDownCircle size={18} />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest">Saída Fixa</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">{t.dashboard.recurring.fixedExpenses}</span>
                 </div>
                 <p className="text-4xl font-black text-white tracking-tighter">{formatCurrency(totalExpenses / 100)}</p>
                 <div className="mt-2 h-1 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -300,14 +308,14 @@ export default function RecurringPage() {
                 <div className="w-8 h-8 bg-blue-500/20 rounded-xl flex items-center justify-center">
                   <Sparkles size={18} className="animate-pulse" />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest">Sobra Líquida Zen</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">{t.dashboard.recurring.netZenBalance}</span>
               </div>
               <p className={`text-4xl font-black tracking-tighter ${netZen >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {formatCurrency(netZen / 100)}
               </p>
               <div className="mt-3 flex items-center gap-2">
                 <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${netZen >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                  {netZen >= 0 ? 'Equilíbrio Zen' : 'Atenção Crítica'}
+                  {netZen >= 0 ? t.dashboard.recurring.zenEquilibrium : t.dashboard.recurring.criticalAttention}
                 </div>
               </div>
             </motion.div>
@@ -321,7 +329,7 @@ export default function RecurringPage() {
               className="flex items-center gap-3 px-8 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-xs transition-all shadow-2xl shadow-blue-600/30 group active:scale-95 cursor-pointer h-fit"
             >
               <Plus size={20} className="group-hover:rotate-90 transition-transform" />
-              {activeTab === 'expense' ? 'Nova Subscrição' : 'Nova Receita'}
+              {activeTab === 'expense' ? t.dashboard.recurring.addNew : t.dashboard.recurring.newIncome}
             </button>
           </div>
         </div>
@@ -338,7 +346,7 @@ export default function RecurringPage() {
               }`}
             >
               <ArrowDownCircle size={18} />
-              Despesas Fixas
+              {t.dashboard.recurring.fixedExpenses}
             </button>
             <button
               onClick={() => setActiveTab('income')}
@@ -349,7 +357,7 @@ export default function RecurringPage() {
               }`}
             >
               <ArrowUpCircle size={18} />
-              Receitas Fixas
+              {t.dashboard.recurring.fixedIncomes}
             </button>
           </div>
         </div>
@@ -442,7 +450,7 @@ export default function RecurringPage() {
                         setFormData({...formData, description: e.target.value});
                         if (errors.description) setErrors({...errors, description: ''});
                       }} 
-                      placeholder="Descrição" 
+                      placeholder={t.dashboard.recurring.descriptionPlaceholder} 
                       className={`w-full bg-slate-950 border rounded-2xl p-4 text-white outline-none transition-all ${
                         errors.description ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'border-slate-800 focus:border-blue-500'
                       }`} 
@@ -520,7 +528,7 @@ export default function RecurringPage() {
                       onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
                       className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-10 text-white appearance-none focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
                     >
-                      <option value="">Selecionar Categoria</option>
+                      <option value="">{t.dashboard.recurring.selectCategory}</option>
                       {categories.map((c) => (
                         <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
                       ))}

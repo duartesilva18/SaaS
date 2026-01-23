@@ -26,7 +26,7 @@ export default function PricingPage() {
       window.location.href = res.data.url;
     } catch (err) {
       console.error(err);
-      alert('Erro ao iniciar checkout. Certifique-se de que está logado.');
+      alert(t.dashboard.pricing.monthlyPlan.error);
     } finally {
       setLoading(null);
     }
@@ -35,33 +35,21 @@ export default function PricingPage() {
   const plans = [
     {
       id: 'monthly',
-      name: 'Plano Mensal',
+      name: t.dashboard.pricing.monthlyPlan.name,
       price: 9.99,
       priceId: 'price_1SrkUWLtWlVpaXrb8zFq6OvW',
-      description: 'Ideal para quem quer testar a potência da gestão zen.',
-      features: [
-        'Gestão de Gastos Ilimitada',
-        'Análise Pro & Insights de IA',
-        'Gestão de Ciclos Recorrentes',
-        'Suporte via Telegram',
-        'Exportação de Dados (JSON/CSV)',
-      ],
+      description: t.dashboard.pricing.monthlyPlan.description,
+      features: t.dashboard.pricing.monthlyPlan.features,
       icon: Zap,
       color: 'blue'
     },
     {
       id: 'yearly',
-      name: 'Plano Anual',
+      name: t.dashboard.pricing.yearlyPlan.name,
       price: 89.90, // ~7.49/mês
-      priceId: 'price_1SrkUrLtWlVpaXrbeE2M4mEB',
-      description: 'A escolha dos mestres financeiros. Máxima economia e foco.',
-      features: [
-        'Tudo do plano Mensal',
-        'Economia de 25% (2 Meses Grátis)',
-        'Relatórios de Evolução Anual',
-        'Acesso Antecipado a Novas Funções',
-        'Selo VIP na Dashboard',
-      ],
+      priceId: 'price_1SrkUrLtWlVpaXrb8zFq6OvW',
+      description: t.dashboard.pricing.yearlyPlan.description,
+      features: t.dashboard.pricing.yearlyPlan.features,
       icon: Crown,
       popular: true,
       color: 'indigo'
@@ -178,7 +166,7 @@ export default function PricingPage() {
               </div>
 
               <div className="space-y-5 mb-12 flex-grow">
-                {plan.features.map((feature, fIndex) => (
+                {plan.features.map((feature: string, fIndex: number) => (
                   <div key={fIndex} className="flex items-start gap-4 group/item">
                     <div className={`mt-1 p-0.5 rounded-full ${plan.popular ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`}>
                       <Check size={14} strokeWidth={4} />

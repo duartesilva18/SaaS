@@ -54,109 +54,109 @@ import api from '@/lib/api';
 
 const menuSections = (t: any) => [
   {
-    title: "Visão Geral",
+    title: t.dashboard.sidebar.overview || "Visão Geral",
     items: [
       {
-        name: "Dashboard",
+        name: t.dashboard.sidebar.dashboard,
         href: '/dashboard',
         icon: LayoutDashboard,
       },
       {
-        name: "Análise Pro",
+        name: t.dashboard.sidebar.analytics,
         href: '/analytics',
         icon: PieChart,
       }
     ]
   },
   {
-    title: "Poupança & Investimento",
+    title: t.dashboard.sidebar.savings || "Poupança & Investimento",
     items: [
       {
-        name: "Cofre de Reservas",
+        name: t.dashboard.sidebar.vault || "Cofre de Reservas",
         href: '/vault',
         icon: Landmark,
       },
       {
-        name: "Metas de Poupança",
+        name: t.dashboard.sidebar.goals || "Metas de Poupança",
         href: '/goals',
         icon: Target,
       },
       {
-        name: "Simulador FIRE",
+        name: t.dashboard.sidebar.fire || "Simulador FIRE",
         href: '/fire',
         icon: Zap,
       }
     ]
   },
   {
-    title: "Gestão Financeira",
+    title: t.dashboard.sidebar.financial || "Gestão Financeira",
     items: [
       {
-        name: "Transações",
+        name: t.dashboard.sidebar.transactions,
         href: '/transactions',
         icon: Receipt,
       },
       {
-        name: "Categorias",
+        name: t.dashboard.sidebar.categories,
         href: '/categories',
         icon: Tag,
       },
       {
-        name: "Subscrições Mensais",
+        name: t.dashboard.sidebar.recurring,
         href: '/recurring',
         icon: Clock,
       }
     ]
   },
   {
-    title: "Ferramentas",
+    title: t.dashboard.sidebar.tools || "Ferramentas",
     items: [
       {
-        name: "Bot Telegram",
+        name: t.dashboard.sidebar.telegramBot || "Bot Telegram",
         href: 'https://t.me/FinlyApp_bot',
         icon: Send,
         isExternal: true
       },
       {
-        name: "Guia do Mestre",
+        name: t.dashboard.sidebar.guide,
         href: '/guide',
         icon: HelpCircle,
       }
     ]
   },
   {
-    title: "Configurações",
+    title: t.dashboard.sidebar.settings || "Configurações",
     items: [
       {
-        name: "Faturação",
+        name: t.dashboard.sidebar.billing,
         href: '/billing',
         icon: CreditCard,
       },
       {
-        name: "Definições",
+        name: t.dashboard.sidebar.settings,
         href: '/settings',
         icon: Settings,
       }
     ]
   },
   {
-    title: "Administração",
+    title: t.dashboard.sidebar.admin || "Administração",
     isAdminSection: true,
     items: [
       {
-        name: "Painel de Comando",
+        name: t.dashboard.sidebar.adminPanel || "Painel de Comando",
         href: '/admin',
         icon: Shield,
         adminOnly: true
       },
       {
-        name: "Tesouraria Global",
+        name: t.dashboard.sidebar.globalTreasury || "Tesouraria Global",
         href: '/admin/finance',
         icon: Landmark,
         adminOnly: true
       },
       {
-        name: "Marketing",
+        name: t.dashboard.sidebar.marketing || "Marketing",
         href: '/admin/marketing',
         icon: Megaphone,
         adminOnly: true
@@ -223,7 +223,7 @@ export default function Sidebar({
               message: ins.message,
               type: ins.type,
               icon: ins.icon,
-              date: 'Agora'
+              date: t.dashboard.sidebar.now
             });
           }
         });
@@ -235,11 +235,11 @@ export default function Sidebar({
           if (diff >= 0 && diff <= 3) {
             newNotifications.push({
               id: `rec-${rec.id}`,
-              title: diff === 0 ? 'Vence HOJE' : `Vence em ${diff} dias`,
-              message: `Subscrição "${rec.description}" de ${formatPrice(rec.amount_cents/100)} em breve.`,
+              title: diff === 0 ? t.dashboard.sidebar.dueToday : t.dashboard.sidebar.dueInDays.replace('{days}', diff.toString()),
+              message: t.dashboard.sidebar.subscriptionDue.replace('{description}', rec.description).replace('{amount}', formatPrice(rec.amount_cents/100)),
               type: 'info',
               icon: 'clock',
-              date: 'Próximo'
+              date: t.dashboard.sidebar.next
             });
           }
         });
@@ -253,11 +253,11 @@ export default function Sidebar({
           criticalFound = true;
           newNotifications.push({
             id: 'stripe-unpaid',
-            title: 'Pagamento Falhou',
-            message: 'Tens uma fatura pendente no teu Plano Pro. Verifica a faturação.',
+            title: t.dashboard.sidebar.paymentFailed,
+            message: t.dashboard.sidebar.unpaidInvoice,
             type: 'danger',
             icon: 'credit-card',
-            date: 'Urgente'
+            date: t.dashboard.sidebar.urgent
           });
         }
 
@@ -265,11 +265,11 @@ export default function Sidebar({
         if (newNotifications.length === 0) {
           newNotifications.push({
             id: 'welcome',
-            title: 'Sistema Operacional',
-            message: 'O teu ecossistema Zen está em harmonia plena. Continua o bom trabalho.',
+            title: t.dashboard.sidebar.systemOperational,
+            message: t.dashboard.sidebar.zenHarmony,
             type: 'success',
             icon: 'sparkles',
-            date: 'Agora'
+            date: t.dashboard.sidebar.now
           });
         }
 
@@ -344,7 +344,7 @@ export default function Sidebar({
             </span>
             {isPro && (
               <span className="text-[8px] font-black uppercase tracking-[0.2em] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full w-fit">
-                Mestre Pro
+                {t.dashboard.sidebar.masterPro}
               </span>
             )}
           </div>
@@ -468,7 +468,7 @@ export default function Sidebar({
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
                         : 'bg-slate-800 text-slate-500 border-white/5'
                   }`}>
-                    {user.is_admin ? 'Root Admin' : isPro ? 'Plano Pro' : 'Plano Free'}
+                    {user.is_admin ? t.dashboard.sidebar.rootAdmin : isPro ? t.dashboard.sidebar.planPro : t.dashboard.sidebar.planFree}
                   </span>
                 </div>
               </div>
@@ -486,7 +486,7 @@ export default function Sidebar({
                 >
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
-                      <h4 className="text-xs font-black uppercase tracking-[0.2em] text-white">Notificações</h4>
+                      <h4 className="text-xs font-black uppercase tracking-[0.2em] text-white">{t.dashboard.sidebar.notifications}</h4>
                       {notifications.length > 0 && (
                         <span className="bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-[0_0_10px_rgba(59,130,246,0.5)]">
                           {notifications.length}
@@ -499,7 +499,7 @@ export default function Sidebar({
                           onClick={handleClearAll}
                           className="text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-colors cursor-pointer"
                         >
-                          Limpar Tudo
+                          {t.dashboard.sidebar.clearAll}
                         </button>
                       )}
                       <button onClick={() => setShowNotifications(false)} className="text-slate-400 hover:text-white cursor-pointer p-1">
@@ -513,7 +513,7 @@ export default function Sidebar({
                         <div className="w-16 h-16 bg-white/5 rounded-[24px] flex items-center justify-center mx-auto text-slate-700">
                           <Bell size={28} />
                         </div>
-                        <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] italic">Nada a reportar por agora</p>
+                        <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] italic">{t.dashboard.sidebar.nothingToReport}</p>
                       </div>
                     ) : (
                       notifications.map((notif) => (
@@ -543,7 +543,7 @@ export default function Sidebar({
                                 <button 
                                   onClick={() => handleMarkAsRead(notif.id)}
                                   className="opacity-0 group-hover/notif:opacity-100 p-1.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-white transition-all cursor-pointer"
-                                  title="Marcar como lida"
+                                  title={t.dashboard.sidebar.markAsRead}
                                 >
                                   <X size={12} />
                                 </button>
@@ -557,7 +557,7 @@ export default function Sidebar({
                     
                     {notifications.length > 0 && (
                       <p className="text-[9px] text-slate-600 text-center py-4 font-black uppercase tracking-[0.4em] italic">
-                        Centro de Comando Zen
+                        {t.dashboard.sidebar.zenCommandCenter}
                       </p>
                     )}
                   </div>
@@ -574,7 +574,7 @@ export default function Sidebar({
           <div className="w-5 h-5 flex items-center justify-center group-hover:-translate-x-1 transition-transform">
             <LogOut size={18} />
           </div>
-          {(!isCollapsed || isMobileOpen) && <span className="text-[10px] font-black uppercase tracking-[0.2em]">Terminar Sessão</span>}
+          {(!isCollapsed || isMobileOpen) && <span className="text-[10px] font-black uppercase tracking-[0.2em]">{t.dashboard.sidebar.logout}</span>}
         </button>
       </div>
     </div>

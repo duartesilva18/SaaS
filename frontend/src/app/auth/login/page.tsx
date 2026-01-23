@@ -24,25 +24,10 @@ const MagneticButton = ({ children, className, onClick, disabled, type = "button
   );
 };
 
-const motivationalQuotes = [
-  {
-    title: "Domine o seu dinheiro hoje.",
-    quote: "A liberdade financeira não é sobre ter muito dinheiro, é sobre ter o controlo total sobre ele.",
-    stat: "Poupança média de 180€ no primeiro mês"
-  },
-  {
-    title: "Simplicidade é a chave do sucesso.",
-    quote: "Gaste menos tempo a contar e mais tempo a viver. O registo por Telegram leva apenas 3 segundos.",
-    stat: "Mais de 2.800 portugueses em controlo"
-  },
-  {
-    title: "O seu futuro começa agora.",
-    quote: "Onde queres estar daqui a um ano? O primeiro passo é saber para onde vai cada cêntimo.",
-    stat: "Segurança de nível bancário e privacidade"
-  }
-];
+// motivationalQuotes agora vem das traduções
 
 function GoogleLoginButton({ onLoginSuccess }: { onLoginSuccess: (token: string) => void }) {
+  const { t } = useTranslation();
   const login = useGoogleLogin({
     onSuccess: (tokenResponse) => onLoginSuccess(tokenResponse.access_token),
     onError: () => console.log('Login com Google Falhou'),
@@ -63,14 +48,14 @@ function GoogleLoginButton({ onLoginSuccess }: { onLoginSuccess: (token: string)
         <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.75 1 3.99 3.76 2.18 7.36l3.69 2.98c.86-2.59 3.28-4.51 6.13-4.51z" fill="#EA4335" />
       </svg>
       <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 group-hover/btn:text-white transition-colors">
-        Entrar com Google
+        {t.auth.login.googleLogin}
       </span>
     </button>
   );
 }
 
 export default function LoginPage() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -82,12 +67,14 @@ export default function LoginPage() {
   const { refreshUser } = useUser();
   const router = useRouter();
 
+  const motivationalQuotes = t.auth.login.motivationalQuotes;
+
   useEffect(() => {
     const interval = setInterval(() => {
       setQuoteIndex((prev) => (prev + 1) % motivationalQuotes.length);
     }, 6000);
     return () => clearInterval(interval);
-  }, []);
+  }, [motivationalQuotes.length]);
 
   const validateEmail = (email: string) => {
     return String(email).toLowerCase().match(/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/);
@@ -181,7 +168,8 @@ export default function LoginPage() {
     try {
       const response = await api.post('/auth/social-login', {
         token,
-        provider
+        provider,
+        language
       });
       const storage = rememberMe ? localStorage : sessionStorage;
       storage.setItem('token', response.data.access_token);
@@ -236,7 +224,7 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (err: any) {
       const detail = err.response?.data?.detail;
-      setError(detail || `Ocorreu um erro no login com Google.`);
+      setError(detail || t.auth.login.googleError);
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
     } finally {
@@ -258,7 +246,7 @@ export default function LoginPage() {
             className="absolute top-12 left-12 lg:left-20 flex items-center gap-2 text-slate-500 hover:text-white transition-all text-xs font-black uppercase tracking-[0.3em] group cursor-pointer"
           >
             <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-            Voltar ao Início
+            {t.auth.login.backToHome}
           </Link>
 
           <div className="relative min-h-[400px] flex flex-col justify-center">
@@ -292,7 +280,7 @@ export default function LoginPage() {
                       {motivationalQuotes[quoteIndex].stat}
                     </span>
                     <span className="text-[8px] lg:text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                      Métrica de impacto Finly
+                      {t.auth.login.impactMetric}
                     </span>
                   </div>
                 </div>
@@ -316,7 +304,7 @@ export default function LoginPage() {
               className="flex items-center gap-2 text-slate-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-[0.3em] cursor-pointer"
             >
               <ChevronLeft size={14} />
-              Voltar
+              {t.auth.login.back}
             </Link>
           </div>
 
@@ -475,7 +463,7 @@ export default function LoginPage() {
 
         <div className="absolute bottom-8 lg:bottom-12 left-1/2 -translate-x-1/2 lg:left-auto lg:right-12 lg:translate-x-0 flex items-center gap-2 lg:gap-3 text-[8px] lg:text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] lg:tracking-[0.5em] opacity-50 whitespace-nowrap">
           <ShieldCheck size={12} className="lg:size-[14px]" />
-          256-Bit SSL Secured
+          {t.auth.login.sslSecured}
         </div>
       </div>
     </GoogleOAuthProvider>

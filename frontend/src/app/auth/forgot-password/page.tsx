@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
         router.push(`/auth/reset-password?email=${encodeURIComponent(email)}`);
       }, 3000);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ocorreu um erro ao processar o seu pedido.');
+      setError(err.response?.data?.detail || t.auth.forgotPassword.errorMessage);
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 500);
     } finally {
@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
           className="flex items-center gap-2 text-slate-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-[0.3em] cursor-pointer"
         >
           <ChevronLeft size={14} />
-          Voltar ao Login
+          {t.auth.forgotPassword.backToLogin}
         </Link>
       </div>
 
@@ -66,10 +66,10 @@ export default function ForgotPasswordPage() {
             <Sparkles size={24} />
           </div>
           <h1 className="text-4xl lg:text-5xl font-black tracking-tighter mb-3 lg:mb-4 text-white">
-            Recuperar <span className="text-blue-500 italic">Acesso</span>
+            {t.auth.forgotPassword.title}<span className="text-blue-500 italic">{t.auth.forgotPassword.titleAccent}</span>
           </h1>
           <p className="text-slate-500 font-medium text-base lg:text-lg italic">
-            Introduza o seu email para receber o código de recuperação.
+            {t.auth.forgotPassword.subtitle}
           </p>
         </div>
 
@@ -101,7 +101,7 @@ export default function ForgotPasswordPage() {
                 <div className="w-8 h-8 bg-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
                   <CheckCircle2 size={16} />
                 </div>
-                Código enviado! A redirecionar para a redefinição...
+                {t.auth.forgotPassword.successMessage}
               </motion.div>
             )}
           </AnimatePresence>
@@ -110,7 +110,7 @@ export default function ForgotPasswordPage() {
             <form onSubmit={handleSubmit} noValidate className="space-y-6 lg:space-y-8">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 ml-2">
-                  Email de Acesso
+                  {t.auth.forgotPassword.emailLabel}
                 </label>
                 <div className="relative group/input">
                   <div className={`absolute left-5 top-1/2 -translate-y-1/2 transition-colors duration-300 ${error ? 'text-red-500' : 'text-slate-500 group-focus-within/input:text-blue-500'}`}>
@@ -121,7 +121,7 @@ export default function ForgotPasswordPage() {
                     value={email}
                     onChange={(e) => { setEmail(e.target.value); if (error) setError(''); }}
                     className={`w-full bg-slate-950/50 border rounded-[24px] py-5 lg:py-6 pl-14 pr-5 text-sm lg:text-base focus:outline-none transition-all placeholder:text-slate-800 font-medium ${error ? 'border-red-500/50 bg-red-500/5' : 'border-slate-800 focus:border-blue-500'}`}
-                    placeholder="o-teu-email@exemplo.com"
+                    placeholder={t.auth.forgotPassword.emailPlaceholder}
                     required
                   />
                 </div>
@@ -136,7 +136,7 @@ export default function ForgotPasswordPage() {
                   <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
                   <>
-                    Enviar Código <ArrowRight size={20} />
+                    {t.auth.forgotPassword.submit} <ArrowRight size={20} />
                   </>
                 )}
               </button>

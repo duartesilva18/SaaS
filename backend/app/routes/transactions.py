@@ -52,14 +52,22 @@ async def get_transactions(request: Request, skip: int = 0, limit: int = 100, db
     import logging
     logger = logging.getLogger("transactions")
     
-    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    # Usar workspace cacheado se disponível
+    workspace = getattr(request.state, 'workspace', None)
     if not workspace:
-        raise HTTPException(status_code=404, detail='Workspace not found')
+        workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+        if not workspace:
+            raise HTTPException(status_code=404, detail='Workspace not found')
+        request.state.workspace = workspace
     
     process_automatic_recurring(db, workspace.id)
     
     # Filtrar transações de seed (1 cêntimo) diretamente na query SQL - muito mais rápido
-    transactions = db.query(models.Transaction).filter(
+    # Usar eager loading para evitar N+1 queries
+    from sqlalchemy.orm import joinedload
+    transactions = db.query(models.Transaction).options(
+        joinedload(models.Transaction.category)
+    ).filter(
         models.Transaction.workspace_id == workspace.id,
         func.abs(models.Transaction.amount_cents) != 1
     ).order_by(models.Transaction.created_at.desc()).offset(skip).limit(limit).all()
@@ -100,8 +108,43 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
     if transaction_in.amount_cents == 0:
         raise HTTPException(status_code=400, detail='O valor da transação não pode ser zero.')
     
-    # Se é resgate de vault (amount positivo e categoria de vault), verificar saldo disponível
-    if category and category.vault_type != 'none' and transaction_in.amount_cents > 0:
+    # VALIDAÇÃO CRÍTICA: Regra única de sinais
+    # income → amount_cents > 0
+    # expense → amount_cents < 0
+    # vault deposit → amount_cents > 0 (independente do type da categoria)
+    # vault withdraw → amount_cents < 0 (independente do type da categoria)
+    if category:
+        if category.vault_type != 'none':
+            # Vault: depósito > 0, resgate < 0
+            # Para vault, o sinal determina depósito vs resgate, não o type da categoria
+            if transaction_in.amount_cents > 0:
+                # Depósito no vault (sempre positivo)
+                pass  # Válido
+            elif transaction_in.amount_cents < 0:
+                # Resgate do vault (sempre negativo)
+                pass  # Válido, será validado saldo abaixo
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'Transações de vault devem ter amount_cents diferente de zero. Recebido: {transaction_in.amount_cents}'
+                )
+        elif category.type == 'income' and category.vault_type == 'none':
+            # Receita regular deve ser positiva
+            if transaction_in.amount_cents < 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f'Receitas devem ter amount_cents positivo. Recebido: {transaction_in.amount_cents}'
+                )
+        elif category.type == 'expense' and category.vault_type == 'none':
+            # Despesa regular deve ser negativa
+            if transaction_in.amount_cents > 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f'Despesas devem ter amount_cents negativo. Recebido: {transaction_in.amount_cents}'
+                )
+    
+    # Se é resgate de vault (amount negativo e categoria de vault), verificar saldo disponível
+    if category and category.vault_type != 'none' and transaction_in.amount_cents < 0:
         # Calcular saldo atual do vault
         vault_transactions = db.query(models.Transaction).filter(
             models.Transaction.workspace_id == workspace.id,
@@ -109,18 +152,20 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
             func.abs(models.Transaction.amount_cents) != 1  # Excluir seed transactions
         ).all()
         
-        # Calcular saldo: depósitos (negativos) aumentam, resgates (positivos) diminuem
+        # Calcular saldo: depósitos (positivos) aumentam, resgates (negativos) diminuem
         vault_balance = 0
         for t in vault_transactions:
-            if t.amount_cents < 0:
-                vault_balance += abs(t.amount_cents)  # Depósito
+            if t.amount_cents > 0:
+                vault_balance += t.amount_cents  # Depósito
             else:
-                vault_balance -= t.amount_cents  # Resgate
+                vault_balance -= abs(t.amount_cents)  # Resgate
         
         # Verificar se há saldo suficiente E se não deixa negativo
-        balance_after_withdrawal = vault_balance - transaction_in.amount_cents
+        # Como transaction_in.amount_cents é negativo, subtraímos o valor absoluto
+        withdrawal_amount = abs(transaction_in.amount_cents)
+        balance_after_withdrawal = vault_balance - withdrawal_amount
         
-        if transaction_in.amount_cents > vault_balance:
+        if withdrawal_amount > vault_balance:
             available_euros = vault_balance / 100
             raise HTTPException(
                 status_code=400, 
@@ -132,7 +177,7 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
             available_euros = vault_balance / 100
             raise HTTPException(
                 status_code=400,
-                detail=f'Não é possível retirar {transaction_in.amount_cents / 100:.2f}€. O saldo ficaria negativo. Disponível: {available_euros:.2f}€'
+                detail=f'Não é possível retirar {withdrawal_amount / 100:.2f}€. O saldo ficaria negativo. Disponível: {available_euros:.2f}€'
             )
     
     new_transaction = models.Transaction(

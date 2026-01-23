@@ -60,7 +60,7 @@ export default function GuidePage() {
           animate={{ opacity: 1, scale: 1 }}
           className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full text-blue-400 text-[10px] font-black uppercase tracking-widest"
         >
-          <HelpCircle size={14} /> Centro de Aprendizagem
+          <HelpCircle size={14} /> {guide.learningCenter}
         </motion.div>
         
         <motion.h1 
@@ -88,52 +88,52 @@ export default function GuidePage() {
           
           <div className="flex-1 space-y-10 relative z-10">
             <div className="inline-flex items-center gap-3 bg-blue-500/10 border border-blue-500/20 px-5 py-2 rounded-full text-blue-400 text-xs font-black uppercase tracking-widest">
-              <Send size={16} /> Bot Telegram
+              <Send size={16} /> {guide.telegramBot}
             </div>
             
             <h2 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">
-              Regista no <span className="text-blue-500 italic">Telegram</span> em segundos.
+              {guide.registerInTelegram} <span className="text-blue-500 italic">{guide.registerInTelegramAccent}</span> {guide.registerInTelegramSeconds}
             </h2>
             
             <p className="text-slate-400 text-lg md:text-xl font-medium leading-relaxed max-w-xl">
-              Múltiplas formas de escrever. Especifica a categoria com um hífen ou deixa a IA categorizar automaticamente.
+              {guide.multipleWays}
             </p>
 
             {/* Formas de Escrever */}
             <div className="space-y-4 pt-4">
               <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-800">
-                <h3 className="text-white font-black text-sm uppercase tracking-wider mb-4">Formas de Escrever:</h3>
+                <h3 className="text-white font-black text-sm uppercase tracking-wider mb-4">{guide.waysToWrite}</h3>
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
                     <div>
-                      <p className="text-white font-bold text-xs mb-1">Formato Simples</p>
-                      <p className="text-slate-400 text-xs font-mono">Bolachas 10€</p>
-                      <p className="text-slate-500 text-[10px] mt-1">A IA categoriza automaticamente</p>
+                      <p className="text-white font-bold text-xs mb-1">{guide.simpleFormat}</p>
+                      <p className="text-slate-400 text-xs font-mono">{guide.simpleFormatExample}</p>
+                      <p className="text-slate-500 text-[10px] mt-1">{guide.aiCategorizes}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
                     <div>
-                      <p className="text-white font-bold text-xs mb-1">Com Categoria (Hífen)</p>
-                      <p className="text-slate-400 text-xs font-mono">Iogurtes - Alimentação 5€</p>
-                      <p className="text-slate-500 text-[10px] mt-1">Especifica a categoria diretamente</p>
+                      <p className="text-white font-bold text-xs mb-1">{guide.withCategory}</p>
+                      <p className="text-slate-400 text-xs font-mono">{guide.withCategoryExample}</p>
+                      <p className="text-slate-500 text-[10px] mt-1">{guide.specifyCategory}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
                     <div>
-                      <p className="text-white font-bold text-xs mb-1">Palavras-chave</p>
-                      <p className="text-slate-400 text-xs font-mono">Uber 15€</p>
-                      <p className="text-slate-500 text-[10px] mt-1">Reconhece "Uber" como Transportes</p>
+                      <p className="text-white font-bold text-xs mb-1">{guide.keywords}</p>
+                      <p className="text-slate-400 text-xs font-mono">{guide.keywordsExample}</p>
+                      <p className="text-slate-500 text-[10px] mt-1">{guide.recognizesUber}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
                     <div>
-                      <p className="text-white font-bold text-xs mb-1">Receitas</p>
-                      <p className="text-slate-400 text-xs font-mono">Salário 1500€</p>
-                      <p className="text-slate-500 text-[10px] mt-1">Reconhece palavras como "salário", "recebi"</p>
+                      <p className="text-white font-bold text-xs mb-1">{guide.income}</p>
+                      <p className="text-slate-400 text-xs font-mono">{guide.incomeExample}</p>
+                      <p className="text-slate-500 text-[10px] mt-1">{guide.recognizesIncome}</p>
                     </div>
                   </div>
                 </div>
@@ -147,11 +147,11 @@ export default function GuidePage() {
                 rel="noopener noreferrer"
                 className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-95 cursor-pointer flex items-center gap-2"
               >
-                <Send size={14} /> Abrir Telegram Bot
+                <Send size={14} /> {guide.openTelegramBot}
               </a>
               <Link href="/dashboard">
                 <button className="px-8 py-4 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all active:scale-95 cursor-pointer">
-                  Ir para Dashboard
+                  {guide.goToDashboard}
                 </button>
               </Link>
             </div>
@@ -166,8 +166,8 @@ export default function GuidePage() {
                   <Send size={20} />
                 </div>
                 <div>
-                  <h4 className="text-white font-bold text-sm">Finly Bot</h4>
-                  <p className="text-blue-400 text-[10px] font-medium tracking-wider uppercase">Online • Sempre pronto</p>
+                  <h4 className="text-white font-bold text-sm">{guide.finlyBot}</h4>
+                  <p className="text-blue-400 text-[10px] font-medium tracking-wider uppercase">{guide.onlineAlwaysReady}</p>
                 </div>
               </div>
 
@@ -196,10 +196,10 @@ export default function GuidePage() {
                         {idx === 0 && (
                           <div className="mt-3 flex gap-2">
                             <button className="flex-1 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">
-                              ✓ Confirmar
+                              {guide.confirm}
                             </button>
                             <button className="flex-1 bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">
-                              ✗ Cancelar
+                              {guide.cancel}
                             </button>
                           </div>
                         )}
@@ -212,7 +212,7 @@ export default function GuidePage() {
               {/* Fake Input */}
               <div className="p-4 bg-[#2b2b2b] flex items-center gap-3">
                 <div className="flex-1 bg-[#1e1e1e] rounded-full h-10 flex items-center px-4 text-slate-400 text-xs">
-                  Escreve 'Bolachas 10€' ou 'Iogurtes - Alimentação 5€'...
+                  {guide.writeExample}
                 </div>
                 <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white">
                   <Send size={18} />
@@ -225,7 +225,7 @@ export default function GuidePage() {
 
       {/* Secondary Sections */}
       <div className="space-y-12">
-        <h3 className="text-[10px] font-black uppercase tracking-[0.5em] text-center text-slate-600">Outras Funcionalidades</h3>
+        <h3 className="text-[10px] font-black uppercase tracking-[0.5em] text-center text-slate-600">{guide.otherFeatures}</h3>
         
         <motion.div 
           variants={container}
@@ -264,7 +264,7 @@ export default function GuidePage() {
                 </div>
 
                 <div className="mt-auto flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-blue-500/60 group-hover:text-blue-500 transition-colors">
-                  <span>Explorar funcionalidade</span>
+                  <span>{guide.exploreFeature}</span>
                   <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                 </div>
               </motion.div>
@@ -297,10 +297,10 @@ export default function GuidePage() {
           
           <div className="flex-1 space-y-4">
             <h2 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tighter">
-              Privacidade em <span className="text-blue-500 italic">Primeiro Lugar.</span>
+              {guide.privacyFirst} <span className="text-blue-500 italic">{guide.privacyFirstAccent}</span>
             </h2>
             <p className="text-slate-400 text-lg font-medium leading-relaxed max-w-2xl">
-              O Finly é uma ferramenta de gestão, não de invasão. Nunca pedimos as tuas passwords bancárias. Encriptação de ponta a ponta em cada mensagem.
+              {guide.privacyDescription}
             </p>
           </div>
 
@@ -309,11 +309,11 @@ export default function GuidePage() {
               onClick={handleSupportClick}
               className="px-10 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-xl shadow-blue-600/20 active:scale-95 cursor-pointer shrink-0"
             >
-              Falar com Suporte
+              {guide.contactSupport}
             </button>
             <Link href="/settings">
               <button className="px-10 py-5 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-2xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 cursor-pointer shrink-0">
-                Configurar Perfil
+                {guide.configureProfile}
               </button>
             </Link>
           </div>
@@ -323,7 +323,7 @@ export default function GuidePage() {
       {/* Final Footer */}
       <footer className="text-center pt-10 border-t border-white/5">
         <p className="text-slate-600 text-sm font-black uppercase tracking-[0.4em]">
-          Finly • Simplicidade é a maior sofisticação
+          {guide.footer}
         </p>
       </footer>
     </div>

@@ -9,6 +9,7 @@ interface User {
   full_name?: string;
   phone_number?: string;
   currency: string;
+  language?: string;
   gender?: string;
   is_active: boolean;
   is_admin: boolean;

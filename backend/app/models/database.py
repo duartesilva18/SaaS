@@ -14,6 +14,7 @@ class User(Base):
     google_id = Column(String, unique=True, nullable=True)
     phone_number = Column(String, unique=True, nullable=True)
     currency = Column(String(3), nullable=False, server_default='EUR')
+    language = Column(String(5), nullable=False, server_default='pt')
     gender = Column(String(20), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     is_admin = Column(Boolean, nullable=False, default=False)
@@ -38,6 +39,8 @@ class Workspace(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     name = Column(String(100), nullable=False, server_default='Meu Workspace')
+    opening_balance_cents = Column(Integer, nullable=False, default=0)  # Saldo inicial em cêntimos
+    opening_balance_date = Column(Date, nullable=True)  # Data do saldo inicial
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     

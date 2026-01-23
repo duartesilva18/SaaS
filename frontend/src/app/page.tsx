@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { motion, useAnimation } from 'framer-motion';
+import { motion, useAnimation, AnimatePresence } from 'framer-motion';
 import { 
   Sparkles, 
   ArrowRight, 
@@ -18,6 +18,7 @@ import {
   Phone
 } from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
+import { LanguageCode } from '@/lib/languages';
 
 // Componente animado para a palavra Telegram
 function AnimatedTelegram() {
@@ -137,7 +138,8 @@ function FloatingParticles() {
 }
 
 export default function LandingPage() {
-  const { t } = useTranslation();
+  const { t, language, setLanguage, availableLanguages } = useTranslation();
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
 
   // Structured Data para SEO
   const structuredData = {
@@ -281,7 +283,68 @@ export default function LandingPage() {
           </motion.span>
         </motion.div>
         
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-4 md:gap-8">
+          {/* Language Selector */}
+          <div className="relative">
+            <motion.button
+              onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/50 border border-slate-800 hover:border-blue-500/50 transition-all text-slate-300 hover:text-white cursor-pointer"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Globe size={18} />
+              <span className="text-xs font-bold hidden sm:inline">
+                {availableLanguages[language]?.flag} {availableLanguages[language]?.code.toUpperCase()}
+              </span>
+              <span className="text-xs font-bold sm:hidden">
+                {availableLanguages[language]?.flag}
+              </span>
+            </motion.button>
+
+            <AnimatePresence>
+              {showLanguageMenu && (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowLanguageMenu(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    className="absolute right-0 top-full mt-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-50 min-w-[180px]"
+                  >
+                    {Object.values(availableLanguages).map((lang) => (
+                      <button
+                        key={lang.code}
+                        onClick={() => {
+                          setLanguage(lang.code as LanguageCode);
+                          setShowLanguageMenu(false);
+                        }}
+                        className={`w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-slate-800 transition-colors cursor-pointer ${
+                          language === lang.code ? 'bg-blue-500/10 text-blue-400' : 'text-slate-300'
+                        }`}
+                      >
+                        <span className="text-lg">{lang.flag}</span>
+                        <div className="flex-1">
+                          <div className="text-sm font-bold">{lang.nativeName}</div>
+                          <div className="text-xs text-slate-500">{lang.name}</div>
+                        </div>
+                        {language === lang.code && (
+                          <CheckCircle2 size={16} className="text-blue-400" />
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
           <Link href="/auth/login" className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-white transition-colors hidden md:block">
             {t.nav.login}
           </Link>
@@ -425,7 +488,7 @@ export default function LandingPage() {
               <motion.div
                 className="absolute inset-0 bg-gradient-to-r from-slate-800/0 to-slate-700/0 group-hover:from-slate-800/50 group-hover:to-slate-700/50 transition-all duration-500"
               />
-              <span className="relative z-10">Ver Como Funciona</span>
+              <span className="relative z-10">{t.hero.seeHow}</span>
             </Link>
           </motion.div>
         </motion.div>
