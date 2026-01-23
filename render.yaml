@@ -64,6 +64,8 @@ services:
         value: production
       - key: NEXT_PUBLIC_API_URL
         sync: false  # Será configurado manualmente com a URL do backend
+      - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
+        sync: false  # Será configurado manualmente
 
 # Base de Dados PostgreSQL
 databases:
