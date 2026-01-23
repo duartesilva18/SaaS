@@ -70,7 +70,7 @@ services:
 # Base de Dados PostgreSQL
 databases:
   - name: finanzen-database
-    plan: starter
+    plan: free
     databaseName: finanzen_db
     user: finanzen_user
     region: frankfurt
