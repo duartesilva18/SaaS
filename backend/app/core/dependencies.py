@@ -4,7 +4,13 @@ from sqlalchemy import create_engine
 from .config import settings
 from fastapi_mail import ConnectionConfig
 
-engine = create_engine(settings.DATABASE_URL)
+# pool_pre_ping: testa a ligação antes de usar (evita "SSL unexpected eof" / "Connection reset by peer")
+# pool_recycle: recicla ligações antes do timeout do servidor (ex.: 10 min em managed Postgres)
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=600,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -18,7 +24,7 @@ conf = ConnectionConfig(
     MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
     USE_CREDENTIALS=settings.USE_CREDENTIALS,
     VALIDATE_CERTS=True,
-    MAIL_FROM_NAME=settings.PROJECT_NAME
+    MAIL_FROM_NAME=getattr(settings, 'MAIL_FROM_NAME', None) or settings.PROJECT_NAME,
 )
 
 def get_db():

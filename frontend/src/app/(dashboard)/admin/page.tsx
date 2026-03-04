@@ -7,24 +7,32 @@ import {
   Search, Filter, ArrowUpRight, TrendingUp,
   Mail, Calendar, ShieldCheck, Zap, Lock,
   ChevronRight, Loader2, AlertCircle, CheckCircle2,
-  MoreVertical, ShieldAlert, ChevronLeft, ChevronDown, Globe
+  MoreVertical, ShieldAlert, ChevronLeft, ChevronDown, Globe, Gift, X
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useUser } from '@/lib/UserContext';
 import Toast from '@/components/Toast';
+import PageLoading from '@/components/PageLoading';
+import ConfirmModal from '@/components/ConfirmModal';
+import { useRouter } from 'next/navigation';
 
 export default function AdminDashboardPage() {
   const { t, formatCurrency } = useTranslation();
   const { user: currentUser } = useUser();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' as 'success' | 'error' });
-  const [supportPhone, setSupportPhone] = useState('');
-  const [savingPhone, setSavingPhone] = useState(false);
-  
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Grant Pro modal
+  const [userToGrantPro, setUserToGrantPro] = useState<{ id: string; name: string } | null>(null);
+  const [showGrantModal, setShowGrantModal] = useState(false);
+  const [grantMonths, setGrantMonths] = useState<number>(3);
+  const [grantingPro, setGrantingPro] = useState(false);
   // Audit Logs States
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditPage, setAuditPage] = useState(1);
@@ -47,26 +55,28 @@ export default function AdminDashboardPage() {
 
   const fetchData = async () => {
     try {
-      const [statsRes, usersRes, settingsRes] = await Promise.all([
+      const [statsRes, usersRes] = await Promise.all([
         api.get('/admin/stats'),
-        api.get('/admin/users'),
-        api.get('/admin/settings')
+        api.get('/admin/users')
       ]);
       setStats(statsRes.data);
       setUsers(usersRes.data);
-      setSupportPhone(settingsRes.data.support_phone || '351925989577');
       fetchAuditLogs(1, 'all');
     } catch (err) {
       console.error('Erro ao carregar dados de admin:', err);
-      setToast({ isVisible: true, message: 'Erro ao carregar dados administrativos.', type: 'error' });
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.loadError, type: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (currentUser && !currentUser.is_admin) {
+      router.push('/dashboard');
+      return;
+    }
     fetchData();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!loading) {
@@ -77,34 +87,72 @@ export default function AdminDashboardPage() {
   const handleToggleAdmin = async (userId: string) => {
     try {
       await api.post(`/admin/users/${userId}/toggle-admin`);
-      setToast({ isVisible: true, message: 'Status de admin atualizado.', type: 'success' });
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.adminStatusUpdated, type: 'success' });
       fetchData();
     } catch (err) {
-      setToast({ isVisible: true, message: 'Erro ao atualizar status.', type: 'error' });
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.adminStatusError, type: 'error' });
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Tem a certeza que deseja eliminar este utilizador permanentemente?')) return;
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
     try {
-      await api.delete(`/admin/users/${userId}`);
-      setToast({ isVisible: true, message: 'Utilizador eliminado com sucesso.', type: 'success' });
+      await api.delete(`/admin/users/${userToDelete}`);
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.userDeleted, type: 'success' });
+      setShowDeleteConfirm(false);
+      setUserToDelete(null);
       fetchData();
     } catch (err) {
-      setToast({ isVisible: true, message: 'Erro ao eliminar utilizador.', type: 'error' });
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.deleteUserError, type: 'error' });
+      setShowDeleteConfirm(false);
+      setUserToDelete(null);
     }
   };
 
-  const handleUpdateSupportPhone = async () => {
-    setSavingPhone(true);
+  const handleDeleteClick = (userId: string) => {
+    setUserToDelete(userId);
+    setShowDeleteConfirm(true);
+  };
+
+  const openGrantModal = (u: { id: string; full_name?: string; email: string }) => {
+    setUserToGrantPro({ id: u.id, name: u.full_name || u.email });
+    setShowGrantModal(true);
+    setGrantMonths(3);
+  };
+
+  const handleGrantPro = async () => {
+    if (!userToGrantPro) return;
+    setGrantingPro(true);
     try {
-      await api.post('/admin/settings', { support_phone: supportPhone });
-      setToast({ isVisible: true, message: 'Número de suporte atualizado.', type: 'success' });
+      await api.post(`/admin/users/${userToGrantPro.id}/grant-pro`, { months: grantMonths });
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.grantProSuccess, type: 'success' });
+      setShowGrantModal(false);
+      setUserToGrantPro(null);
+      fetchData();
     } catch (err) {
-      setToast({ isVisible: true, message: 'Erro ao atualizar suporte.', type: 'error' });
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.grantProError, type: 'error' });
     } finally {
-      setSavingPhone(false);
+      setGrantingPro(false);
     }
+  };
+
+  const handleRevokePro = async (userId: string) => {
+    try {
+      await api.post(`/admin/users/${userId}/revoke-pro`);
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.revokeProSuccess, type: 'success' });
+      fetchData();
+    } catch (err) {
+      setToast({ isVisible: true, message: t.dashboard.admin.dashboard.revokeProError, type: 'error' });
+    }
+  };
+
+  const isProGranted = (u: { pro_granted_until?: string | null }) => {
+    if (!u.pro_granted_until) return false;
+    return new Date(u.pro_granted_until) > new Date();
+  };
+
+  const formatProUntil = (iso: string) => {
+    return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   const filteredUsers = users.filter(u => 
@@ -113,12 +161,7 @@ export default function AdminDashboardPage() {
   );
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-        <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 animate-pulse">Acedendo ao Terminal de Comando...</p>
-      </div>
-    );
+    return <PageLoading message="Acedendo ao Terminal de Comando..." />;
   }
 
   return (
@@ -127,153 +170,156 @@ export default function AdminDashboardPage() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-10 pb-20"
     >
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2">
-        <div>
-          <h1 className="text-4xl font-black tracking-tighter text-white mb-2 uppercase">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6 px-2">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter text-white mb-2 uppercase leading-tight">
             Painel de <span className="text-blue-500 italic">Comando</span>
           </h1>
-          <p className="text-slate-500 font-medium italic text-sm">Controlo total sobre o ecossistema Finly.</p>
+          <p className="text-slate-500 font-medium italic text-xs sm:text-sm">Controlo total sobre o ecossistema Finly.</p>
         </div>
-        <div className="flex items-center gap-4 bg-slate-900/50 border border-slate-800 p-2 rounded-2xl">
-          <ShieldAlert className="text-blue-500" size={20} />
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Acesso Nível Root: {currentUser?.email}</span>
+        <div className="flex items-center gap-2 sm:gap-4 bg-slate-900/50 border border-slate-800 p-2 rounded-xl sm:rounded-2xl shrink-0">
+          <ShieldAlert className="text-blue-500 shrink-0" size={18} />
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 truncate">Nível Root: {currentUser?.email}</span>
         </div>
       </header>
 
       {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
         {[
-          { label: 'Utilizadores Totais', value: stats?.total_users, icon: Users, color: 'blue' },
-          { label: 'Subscrições Ativas', value: stats?.active_subscriptions, icon: ShieldCheck, color: 'emerald' },
-          { label: 'Total de Visitas', value: stats?.total_visits, icon: Activity, color: 'indigo' },
-          { label: 'Transações no Sistema', value: stats?.total_transactions, icon: Zap, color: 'amber' }
+          { label: t.dashboard.admin.dashboard.totalUsers, value: stats?.total_users, icon: Users, color: 'blue' },
+          { label: t.dashboard.admin.dashboard.activeSubscriptions, value: stats?.active_subscriptions, icon: ShieldCheck, color: 'emerald' },
+          { label: t.dashboard.admin.dashboard.totalVisits, value: stats?.total_visits, icon: Activity, color: 'indigo' },
+          { label: t.dashboard.admin.dashboard.transactionsInSystem, value: stats?.total_transactions, icon: Zap, color: 'amber' }
         ].map((item, i) => (
-          <div key={i} className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-6 rounded-[32px] group hover:border-blue-500/20 transition-all flex-1">
-            <div className="flex items-center justify-between mb-4">
-              <item.icon className={`text-${item.color}-500`} size={20} />
-              <div className={`px-2 py-1 bg-${item.color}-500/10 rounded-lg text-[8px] font-black text-${item.color}-400 uppercase`}>Métrica Live</div>
+          <div key={i} className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-4 sm:p-5 md:p-6 rounded-2xl sm:rounded-[32px] group hover:border-blue-500/20 transition-all flex-1">
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <item.icon className={`text-${item.color}-500`} size={18} />
+              <div className={`px-1.5 sm:px-2 py-0.5 sm:py-1 bg-${item.color}-500/10 rounded-lg text-[7px] sm:text-[8px] font-black text-${item.color}-400 uppercase whitespace-nowrap`}>Métrica</div>
             </div>
-            <p className="text-3xl font-black text-white mb-1">{item.value}</p>
-            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{item.label}</p>
+            <p className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-0.5 sm:mb-1">{item.value}</p>
+            <p className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-widest truncate">{item.label}</p>
           </div>
         ))}
       </div>
 
-      {/* Telegram Support Config */}
-      <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-600/5 blur-[100px] rounded-full -z-10" />
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <h2 className="text-xl font-black text-white uppercase tracking-widest text-[11px] opacity-60 mb-1">Configuração de Suporte</h2>
-            <p className="text-xs text-slate-500 italic">Define o número de telemóvel para o botão de Telegram</p>
-          </div>
-          <div className="flex gap-4 w-full md:w-auto">
-            <div className="relative flex-1 md:w-64">
-              <input 
-                type="text"
-                value={supportPhone}
-                onChange={(e) => setSupportPhone(e.target.value)}
-                className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 px-6 text-sm focus:outline-none focus:border-blue-500 transition-all text-white font-medium"
-                placeholder="Ex: 351925989577"
-              />
-            </div>
-            <button
-              onClick={handleUpdateSupportPhone}
-              disabled={savingPhone}
-              className="px-8 py-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-600/20"
-            >
-              {savingPhone ? <Loader2 size={16} className="animate-spin" /> : 'Guardar'}
-            </button>
-          </div>
-        </div>
-      </section>
-
       {/* User Management Section */}
-      <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 blur-[100px] rounded-full -z-10" />
-        
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-10">
-          <div>
-            <h2 className="text-xl font-black text-white uppercase tracking-widest text-[11px] opacity-60 mb-1">Gestão de Operadores</h2>
+      <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-2xl sm:rounded-[32px] p-4 sm:p-6 md:p-8 lg:p-10 relative overflow-hidden">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 mb-6 sm:mb-8 md:mb-10">
+          <div className="min-w-0">
+            <h2 className="text-base sm:text-lg md:text-xl font-black text-white uppercase tracking-widest text-[11px] opacity-60 mb-1">Gestão de Operadores</h2>
             <p className="text-xs text-slate-500 italic">Lista completa de utilizadores e permissões</p>
           </div>
           
           <div className="relative w-full md:w-96 group">
-            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
+            <Search className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
             <input 
               type="text"
               placeholder="Procurar por email ou nome..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-14 pr-6 text-sm focus:outline-none focus:border-blue-500 transition-all text-white font-medium"
+              className="w-full bg-slate-950/50 border border-slate-800 rounded-xl sm:rounded-2xl py-3 sm:py-4 pl-12 sm:pl-14 pr-4 sm:pr-6 text-sm focus:outline-none focus:border-blue-500 transition-all text-white font-medium min-h-[48px]"
             />
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <div className="min-w-[640px] px-4 sm:px-0">
+            <table className="w-full border-collapse">
             <thead>
               <tr className="text-left border-b border-white/5">
-                <th className="pb-6 px-4 text-[10px] font-black uppercase tracking-[0.3em] text-slate-600">Utilizador</th>
-                <th className="pb-6 px-4 text-[10px] font-black uppercase tracking-[0.3em] text-slate-600">Plano</th>
-                <th className="pb-6 px-4 text-[10px] font-black uppercase tracking-[0.3em] text-slate-600">Permissões</th>
-                <th className="pb-6 px-4 text-[10px] font-black uppercase tracking-[0.3em] text-slate-600">Acessos</th>
-                <th className="pb-6 px-4 text-[10px] font-black uppercase tracking-[0.3em] text-slate-600 text-right">Ações</th>
+                <th className="pb-4 sm:pb-6 px-2 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-600">Utilizador</th>
+                <th className="pb-4 sm:pb-6 px-2 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-600">Plano</th>
+                <th className="pb-4 sm:pb-6 px-2 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-600">Permissões</th>
+                <th className="pb-4 sm:pb-6 px-2 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-600">Acessos</th>
+                <th className="pb-4 sm:pb-6 px-2 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-slate-600 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {filteredUsers.map((u) => (
                 <tr key={u.id} className="group hover:bg-white/[0.02] transition-colors">
-                  <td className="py-6 px-4">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${u.is_admin ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                  <td className="py-4 sm:py-6 px-2 sm:px-4">
+                    <div className="flex items-center gap-2 sm:gap-4">
+                      <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${u.is_admin ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         {u.email[0].toUpperCase()}
                       </div>
-                      <div>
-                        <p className="text-sm font-black text-white">{u.full_name || 'Utilizador Anon'}</p>
-                        <p className="text-[10px] text-slate-500 font-medium">{u.email}</p>
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm font-black text-white truncate">{u.full_name || t.dashboard.admin.dashboard.userAnon}</p>
+                        <p className="text-[10px] text-slate-500 font-medium truncate">{u.email}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="py-6 px-4">
-                    <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
-                      ['active', 'trialing'].includes(u.subscription_status) ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800 text-slate-500 border-white/5'
-                    }`}>
-                      {['active', 'trialing'].includes(u.subscription_status) ? 'Pro Plan' : 'Free Plan'}
-                    </span>
+                  <td className="py-4 sm:py-6 px-2 sm:px-4">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`px-2 sm:px-3 py-1 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-widest border whitespace-nowrap inline-flex w-fit ${
+                          ['active', 'trialing'].includes(u.subscription_status) || isProGranted(u) ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800 text-slate-500 border-white/5'
+                        }`}>
+                          {['active', 'trialing'].includes(u.subscription_status) ? 'Pro Plan' : isProGranted(u) ? t.dashboard.admin.dashboard.proUntil.replace('{date}', formatProUntil(u.pro_granted_until!)) : 'Free Plan'}
+                        </span>
+                        {(u.subscription_status === 'canceled' || u.subscription_status === 'cancel_at_period_end') && !isProGranted(u) && (
+                          <span className="px-2 sm:px-2.5 py-1 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider border whitespace-nowrap inline-flex w-fit bg-orange-500/10 text-orange-400 border-orange-500/20" title="Plano cancelado ou a terminar">
+                            Cancelado
+                          </span>
+                        )}
+                        {u.had_refund === true && (
+                          <span className="px-2 sm:px-2.5 py-1 rounded-lg text-[8px] sm:text-[9px] font-black uppercase tracking-wider border whitespace-nowrap inline-flex w-fit bg-amber-500/10 text-amber-400 border-amber-500/20" title="Reembolso dado">
+                            Reembolso
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </td>
-                  <td className="py-6 px-4">
+                  <td className="py-4 sm:py-6 px-2 sm:px-4">
                     <div className="flex items-center gap-2">
                       {u.is_admin ? (
-                        <div className="flex items-center gap-1.5 text-blue-400 font-black text-[9px] uppercase tracking-widest bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/20">
+                        <div className="flex items-center gap-1.5 text-blue-400 font-black text-[8px] sm:text-[9px] uppercase tracking-widest bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/20 whitespace-nowrap">
                           <Shield size={10} /> Admin
                         </div>
                       ) : (
-                        <span className="text-[9px] font-black uppercase text-slate-600 tracking-widest">Utilizador</span>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-600 tracking-widest whitespace-nowrap">Utilizador</span>
                       )}
                     </div>
                   </td>
-                  <td className="py-6 px-4">
+                  <td className="py-4 sm:py-6 px-2 sm:px-4">
                     <div className="flex flex-col">
                       <span className="text-xs font-black text-white">{u.login_count}</span>
-                      <span className="text-[8px] text-slate-600 uppercase font-black tracking-tighter">Logins efetuados</span>
+                      <span className="text-[8px] text-slate-600 uppercase font-black tracking-tighter whitespace-nowrap">Logins</span>
                     </div>
                   </td>
-                  <td className="py-6 px-4 text-right">
+                  <td className="py-4 sm:py-6 px-2 sm:px-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {!u.is_admin && (
+                        isProGranted(u) ? (
+                          <button 
+                            onClick={() => handleRevokePro(u.id)}
+                            className="p-2 sm:p-2.5 bg-slate-800 hover:bg-amber-600 text-slate-400 hover:text-white rounded-lg sm:rounded-xl transition-all cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
+                            title={t.dashboard.admin.dashboard.revokePro}
+                          >
+                            <X size={14} className="sm:w-4 sm:h-4" />
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => openGrantModal(u)}
+                            className="p-2 sm:p-2.5 bg-slate-800 hover:bg-emerald-600 text-slate-400 hover:text-white rounded-lg sm:rounded-xl transition-all cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
+                            title={t.dashboard.admin.dashboard.grantPro}
+                          >
+                            <Gift size={14} className="sm:w-4 sm:h-4" />
+                          </button>
+                        )
+                      )}
                       <button 
                         onClick={() => handleToggleAdmin(u.id)}
-                        className="p-2.5 bg-slate-800 hover:bg-blue-600 text-slate-400 hover:text-white rounded-xl transition-all cursor-pointer"
-                        title={u.is_admin ? "Remover Admin" : "Tornar Admin"}
+                        className="p-2 sm:p-2.5 bg-slate-800 hover:bg-blue-600 text-slate-400 hover:text-white rounded-lg sm:rounded-xl transition-all cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
+                        title={u.is_admin ? t.dashboard.admin.dashboard.removeAdmin : t.dashboard.admin.dashboard.makeAdmin}
                       >
-                        <Shield size={16} />
+                        <Shield size={14} className="sm:w-4 sm:h-4" />
                       </button>
                       <button 
-                        onClick={() => handleDeleteUser(u.id)}
-                        className="p-2.5 bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white rounded-xl transition-all cursor-pointer"
-                        title="Eliminar Utilizador"
+                        onClick={() => handleDeleteClick(u.id)}
+                        className="p-2 sm:p-2.5 bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white rounded-lg sm:rounded-xl transition-all cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center"
+                        title={t.dashboard.admin.dashboard.deleteUser}
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={14} className="sm:w-4 sm:h-4" />
                       </button>
                     </div>
                   </td>
@@ -281,24 +327,25 @@ export default function AdminDashboardPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </section>
 
       {/* Audit Logs Overview */}
-      <section className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[40px] p-8">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
-          <div className="flex items-center gap-3">
-            <Activity className="text-blue-500" size={20} />
-            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white opacity-50">Auditoria do Sistema</h3>
+      <section className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-2xl sm:rounded-[32px] p-4 sm:p-6 md:p-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 mb-4 sm:mb-6 md:mb-8">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Activity className="text-blue-500 shrink-0" size={18} />
+            <h3 className="text-xs sm:text-sm font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-white opacity-50">Auditoria do Sistema</h3>
           </div>
 
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="relative group min-w-[180px]">
-              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-hover:text-blue-400 transition-colors" size={14} />
+          <div className="flex items-center gap-3 sm:gap-4 w-full md:w-auto">
+            <div className="relative group flex-1 md:flex-none md:min-w-[180px]">
+              <Filter className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-slate-500 group-hover:text-blue-400 transition-colors" size={14} />
               <select
                 value={auditFilter}
                 onChange={(e) => { setAuditFilter(e.target.value); setAuditPage(1); }}
-                className="w-full bg-slate-950/50 border border-slate-800 hover:border-slate-700 rounded-2xl py-3 pl-10 pr-10 text-[11px] font-black uppercase tracking-widest text-white focus:outline-none focus:border-blue-500/50 transition-all cursor-pointer appearance-none shadow-inner"
+                className="w-full bg-slate-950/50 border border-slate-800 hover:border-slate-700 rounded-xl sm:rounded-2xl py-2.5 sm:py-3 pl-9 sm:pl-10 pr-8 sm:pr-10 text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-white focus:outline-none focus:border-blue-500/50 transition-all cursor-pointer appearance-none shadow-inner min-h-[44px]"
               >
                 <option value="all" className="bg-slate-900">Todas as Ações</option>
                 <option value="login" className="bg-slate-900">Logins</option>
@@ -327,7 +374,7 @@ export default function AdminDashboardPage() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.03 }}
                 key={i} 
-                className="flex items-center justify-between p-5 bg-white/[0.02] border border-white/[0.05] rounded-3xl hover:bg-white/[0.04] hover:border-blue-500/20 transition-all group/log"
+                className="flex items-center justify-between p-5 bg-white/[0.02] border border-white/[0.05] rounded-2xl hover:bg-white/[0.04] hover:border-blue-500/20 transition-all group/log"
               >
                 <div className="flex items-center gap-5">
                   <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg transition-transform group-hover/log:scale-110 ${
@@ -401,11 +448,82 @@ export default function AdminDashboardPage() {
         )}
       </section>
 
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setUserToDelete(null);
+        }}
+        onConfirm={handleDeleteUser}
+        title={t.dashboard.admin.dashboard.deleteUser}
+        message={t.dashboard.admin.dashboard.deleteUserConfirmMessage}
+        confirmText={t.dashboard.admin.dashboard.confirmDelete}
+        cancelText={t.dashboard.admin.dashboard.cancel}
+        variant="danger"
+      />
+
+      {/* Grant Pro modal */}
+      <AnimatePresence>
+        {showGrantModal && userToGrantPro && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => !grantingPro && (setShowGrantModal(false), setUserToGrantPro(null))}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            >
+              <h3 className="text-lg font-black text-white mb-2">{t.dashboard.admin.dashboard.grantProTitle}</h3>
+              <p className="text-sm text-slate-400 mb-4">{userToGrantPro.name}</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3">{t.dashboard.admin.dashboard.grantProDuration}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+                {[1, 3, 6, 12].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setGrantMonths(m)}
+                    className={`py-2.5 px-3 rounded-xl text-sm font-bold transition-all ${
+                      grantMonths === m ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                    }`}
+                  >
+                    {m === 1 ? t.dashboard.admin.dashboard.grantPro1Month : m === 3 ? t.dashboard.admin.dashboard.grantPro3Months : m === 6 ? t.dashboard.admin.dashboard.grantPro6Months : t.dashboard.admin.dashboard.grantPro1Year}
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowGrantModal(false); setUserToGrantPro(null); }}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-sm"
+                >
+                  {t.dashboard.admin.dashboard.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGrantPro}
+                  disabled={grantingPro}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 font-bold text-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                  {grantingPro ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {t.dashboard.admin.dashboard.grantPro}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <Toast 
         message={toast.message} 
         type={toast.type} 
         isVisible={toast.isVisible} 
-        onClose={() => setToast({ ...toast, isVisible: false })} 
+        onClose={() => setToast({ ...toast, isVisible: false })}
       />
     </motion.div>
   );

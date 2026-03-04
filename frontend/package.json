@@ -3,14 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "clean": "node -e \"const fs=require('fs');const path=require('path');['.next','node_modules/.cache'].forEach(p=>{const full=path.join(process.cwd(),p);try{fs.rmSync(full,{recursive:true});console.log('Removed',p);}catch(e){if(e.code!=='ENOENT')throw e;}})\"",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.4",
     "@types/canvas-confetti": "^1.9.0",
+    "@types/react-window": "^1.8.8",
     "axios": "^1.13.2",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
@@ -19,6 +21,7 @@
     "next": "16.1.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-window": "^2.2.5",
     "recharts": "^3.6.0",
     "shadcn-ui": "^0.9.5",
     "swr": "^2.3.8",

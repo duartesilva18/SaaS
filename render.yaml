@@ -8,7 +8,13 @@ services:
     rootDir: backend
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
+      # ffmpeg para transcrição de mensagens de voz (Whisper + pydub)
+      - key: NIXPACKS_APT_PKGS
+        value: ffmpeg
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: ENVIRONMENT
         value: production
       - key: DATABASE_URL
@@ -29,7 +35,7 @@ services:
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
-      - key: GEMINI_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
       - key: MAIL_USERNAME
         sync: false
@@ -38,7 +44,7 @@ services:
       - key: MAIL_FROM
         sync: false
       - key: MAIL_SERVER
-        value: smtp.gmail.com
+        value: smtp-relay.brevo.com
       - key: MAIL_PORT
         value: 587
       - key: GOOGLE_CLIENT_ID

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import List
 from ..core.dependencies import get_db
 from ..core.audit import log_action
@@ -9,53 +10,74 @@ from .. import schemas
 from .auth import get_current_user
 from uuid import UUID
 from datetime import date
+import calendar
 
 router = APIRouter(prefix='/transactions', tags=['transactions'])
 
+
+def _last_day_of_month(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+
+def _effective_day_for_month(year: int, month: int, day_of_month: int) -> int:
+    """Dia a usar neste mês (ex.: 31 em fev -> 28 ou 29)."""
+    return min(day_of_month, _last_day_of_month(year, month))
+
+
 def process_automatic_recurring(db: Session, workspace_id: UUID):
+    """Cria transações automáticas para regras recorrentes do mês atual (se já passou o dia)."""
     today = date.today()
-    
+    start_of_month = date(today.year, today.month, 1)
+
     rules = db.query(models.RecurringTransaction).filter(
         models.RecurringTransaction.workspace_id == workspace_id,
-        models.RecurringTransaction.is_active == True,
-        models.RecurringTransaction.process_automatically == True
+        models.RecurringTransaction.is_active == True
     ).all()
-    
+
     for rule in rules:
-        if today.day >= rule.day_of_month:
-            start_of_month = date(today.year, today.month, 1)
-            
-            existing = db.query(models.Transaction).filter(
-                models.Transaction.workspace_id == workspace_id,
+        effective_day = _effective_day_for_month(today.year, today.month, rule.day_of_month)
+        target_date = date(today.year, today.month, effective_day)
+
+        if today < target_date:
+            continue
+
+        # Evitar duplicado: já existe transação este mês com mesma descrição (ou "(R) descrição") e valor
+        existing = db.query(models.Transaction).filter(
+            models.Transaction.workspace_id == workspace_id,
+            or_(
                 models.Transaction.description == rule.description,
-                models.Transaction.amount_cents == rule.amount_cents,
-                models.Transaction.transaction_date >= start_of_month
-            ).first()
-            
-            if existing:
-                continue
-            
-            new_t = models.Transaction(
-                workspace_id=workspace_id,
-                category_id=rule.category_id,
-                amount_cents=rule.amount_cents,
-                description=rule.description,
-                transaction_date=date(today.year, today.month, rule.day_of_month),
-                is_installment=False
-            )
-            db.add(new_t)
-    
+                models.Transaction.description == f"(R) {rule.description}"
+            ),
+            models.Transaction.amount_cents == rule.amount_cents,
+            models.Transaction.transaction_date >= start_of_month
+        ).first()
+
+        if existing:
+            continue
+
+        # Mesmo formato da confirmação manual para consistência
+        new_t = models.Transaction(
+            workspace_id=workspace_id,
+            category_id=rule.category_id,
+            amount_cents=rule.amount_cents,
+            description=f"(R) {rule.description}",
+            transaction_date=target_date,
+            is_installment=False
+        )
+        db.add(new_t)
+
     db.commit()
 
 @router.get('/', response_model=List[schemas.TransactionResponse])
 async def get_transactions(request: Request, skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    limit = min(max(limit, 1), 500)  # Cap entre 1 e 500
     import logging
     logger = logging.getLogger("transactions")
     
-    # Usar workspace cacheado se disponível
+    # Usar workspace cacheado se disponível; senão o primeiro por created_at (igual ao import)
     workspace = getattr(request.state, 'workspace', None)
     if not workspace:
-        workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+        workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).order_by(models.Workspace.created_at).first()
         if not workspace:
             raise HTTPException(status_code=404, detail='Workspace not found')
         request.state.workspace = workspace
@@ -86,7 +108,9 @@ async def get_transactions(request: Request, skip: int = 0, limit: int = 100, db
 
 @router.post('/', response_model=schemas.TransactionResponse)
 async def create_transaction(request: Request, transaction_in: schemas.TransactionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).order_by(models.Workspace.created_at).first()
     if not workspace:
         raise HTTPException(status_code=404, detail='Workspace not found')
     
@@ -191,9 +215,44 @@ async def create_transaction(request: Request, transaction_in: schemas.Transacti
     await log_action(db, action='create_transaction', user_id=current_user.id, details=f'amount: {new_transaction.amount_cents}, category_id: {new_transaction.category_id}', request=request)
     return new_transaction
 
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[str]
+
+
+@router.post('/bulk-delete')
+async def bulk_delete_transactions(request: Request, body: BulkDeleteRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
+    if not body.ids or len(body.ids) == 0:
+        raise HTTPException(status_code=400, detail='Nenhuma transação selecionada.')
+    if len(body.ids) > 500:
+        raise HTTPException(status_code=400, detail='Máximo de 500 transações por operação.')
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).order_by(models.Workspace.created_at).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace não encontrado')
+    uuids = []
+    for tid in body.ids:
+        try:
+            uuids.append(UUID(str(tid).strip()))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f'ID inválido: {tid}')
+    deleted = db.query(models.Transaction).filter(
+        models.Transaction.id.in_(uuids),
+        models.Transaction.workspace_id == workspace.id
+    ).delete(synchronize_session=False)
+    db.commit()
+    await log_action(db, action='bulk_delete_transactions', user_id=current_user.id, details=f'count: {deleted}, ids: {body.ids[:10]}', request=request)
+    return {'message': f'{deleted} transações eliminadas.', 'deleted_count': deleted}
+
+
 @router.patch('/{transaction_id}', response_model=schemas.TransactionResponse)
 async def update_transaction(request: Request, transaction_id: UUID, transaction_in: schemas.TransactionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).order_by(models.Workspace.created_at).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace não encontrado')
     db_transaction = db.query(models.Transaction).filter(
         models.Transaction.id == transaction_id,
         models.Transaction.workspace_id == workspace.id
@@ -208,18 +267,44 @@ async def update_transaction(request: Request, transaction_id: UUID, transaction
     if 'transaction_date' in update_data and update_data['transaction_date'] > date.today():
         raise HTTPException(status_code=400, detail='Não são permitidas transações com data no futuro.')
 
+    old_category_id = db_transaction.category_id
     for field, value in update_data.items():
         setattr(db_transaction, field, value)
     
     db.commit()
     db.refresh(db_transaction)
+
+    # Aprendizagem: quando o utilizador corrige a categoria, atualizar token_scores e cache
+    if 'category_id' in update_data and db_transaction.description and db_transaction.category_id:
+        new_cat_id = db_transaction.category_id
+        if new_cat_id != old_category_id:
+            try:
+                from ..core.categorization_engine import learn_from_correction
+                cat = db.query(models.Category).filter(models.Category.id == new_cat_id).first()
+                if cat:
+                    learn_from_correction(
+                        db_transaction.description,
+                        new_cat_id,
+                        db_transaction.workspace_id,
+                        cat.type,
+                        cat.name,
+                        db,
+                        models,
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger("transactions").warning(f"Aprendizagem falhou: {e}")
     
     await log_action(db, action='update_transaction', user_id=current_user.id, details=f'id: {transaction_id}', request=request)
     return db_transaction
 
 @router.delete('/{transaction_id}')
 async def delete_transaction(request: Request, transaction_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
+    workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).order_by(models.Workspace.created_at).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace não encontrado')
     db_transaction = db.query(models.Transaction).filter(
         models.Transaction.id == transaction_id,
         models.Transaction.workspace_id == workspace.id

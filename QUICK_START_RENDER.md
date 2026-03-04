@@ -2,7 +2,7 @@
 
 **⚠️ IMPORTANTE**: O repositório Git começa na pasta `SaaS`, então o `render.yaml` deve estar na raiz do repositório (dentro da pasta `SaaS`).
 
-## 🚀 Passos Rápidos
+## Passos Rápidos
 
 ### 1. Preparar o Repositório
 ```bash
@@ -35,7 +35,7 @@ ALLOWED_ORIGINS=https://finanzen-frontend.onrender.com
 - `STRIPE_API_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `TELEGRAM_BOT_TOKEN`
-- `GEMINI_API_KEY`
+- `OPENAI_API_KEY`
 - `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`
 - `GOOGLE_CLIENT_ID`
 
@@ -72,4 +72,10 @@ Após o deploy, atualize:
 ## 📖 Documentação Completa
 
 Consulte `RENDER_DEPLOY.md` para instruções detalhadas.
+
+
+
+
+
+
 

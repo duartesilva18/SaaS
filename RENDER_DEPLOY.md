@@ -1,4 +1,4 @@
-# 🚀 Guia de Deploy no Render - FinanZen
+# Guia de Deploy no Render - FinanZen
 
 Este guia explica como fazer deploy do projeto FinanZen no Render.
 
@@ -8,7 +8,7 @@ Este guia explica como fazer deploy do projeto FinanZen no Render.
 
 1. Conta no [Render](https://render.com)
 2. Repositório Git (GitHub, GitLab ou Bitbucket) - **a raiz do repositório deve ser a pasta `SaaS`**
-3. Todas as chaves de API necessárias (Stripe, Telegram, Gemini, etc.)
+3. Todas as chaves de API necessárias (Stripe, Telegram, OpenAI, etc.)
 
 ## 🔧 Passo 1: Preparar o Repositório
 
@@ -94,8 +94,8 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 TELEGRAM_BOT_TOKEN=seu_token_do_bot
 TELEGRAM_WEBHOOK_SECRET=seu_webhook_secret
 
-# Gemini AI
-GEMINI_API_KEY=sua_chave_gemini
+# OpenAI (GPT-4o-mini)
+OPENAI_API_KEY=sua_chave_openai
 
 # Email (SMTP)
 MAIL_USERNAME=seu_email@gmail.com
@@ -106,6 +106,7 @@ MAIL_PORT=587
 
 # Google OAuth
 GOOGLE_CLIENT_ID=seu_google_client_id
+# Se aparecer "Error 400: redirect_uri_mismatch", vê GOOGLE_OAUTH_REDIRECT_URI.md
 
 # WhatsApp (opcional)
 WHATSAPP_TOKEN=seu_token
@@ -153,7 +154,7 @@ FRONTEND_URL=https://finanzen-frontend.onrender.com
 
 A variável `DATABASE_URL` será preenchida automaticamente.
 
-## 🚀 Passo 6: Fazer Deploy
+## Passo 6: Fazer Deploy
 
 1. **Backend**: Render irá fazer deploy automaticamente após configurar as variáveis
 2. **Frontend**: Render irá fazer deploy automaticamente após configurar as variáveis
@@ -164,19 +165,12 @@ A variável `DATABASE_URL` será preenchida automaticamente.
 - O backend deve mostrar: `Application startup complete`
 - O frontend deve mostrar: `Ready on port XXXX`
 
-## 🔄 Passo 7: Executar Migrações (se necessário)
+## 🔄 Passo 7: Base de dados
 
-Se usar Alembic para migrações:
+O backend usa `Base.metadata.create_all()` no arranque: as tabelas são criadas automaticamente se não existirem. O **Start Command** é:
 
-1. Aceda ao backend → **Shell**
-2. Execute:
-   ```bash
-   alembic upgrade head
-   ```
-
-Ou adicione ao **Start Command** do backend:
 ```bash
-alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
 ## 🌐 Passo 8: Configurar Domínio Personalizado (Opcional)
@@ -253,5 +247,11 @@ O bot Telegram será configurado automaticamente ao iniciar o backend, mas pode 
 
 ---
 
-**Boa sorte com o deploy! 🚀**
+**Boa sorte com o deploy!**
+
+
+
+
+
+
 

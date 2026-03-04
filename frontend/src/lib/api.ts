@@ -1,18 +1,21 @@
 import axios from 'axios';
+import { devLog } from './utils';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  // Enviar idioma atual para o backend (para respostas localizadas)
-  const language = localStorage.getItem('language');
-  if (language) {
-    config.headers['Accept-Language'] = language;
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    // Enviar idioma atual para o backend (para respostas localizadas)
+    const language = localStorage.getItem('language');
+    if (language) {
+      config.headers['Accept-Language'] = language;
+    }
   }
   return config;
 });
@@ -23,9 +26,7 @@ api.interceptors.response.use(
   (error) => {
     // Erro de rede (servidor não acessível)
     if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-      console.error('Erro de rede: O servidor backend pode não estar a correr.');
-      console.error('URL da API:', api.defaults.baseURL);
-      // Não fazer nada - deixar o componente lidar com o erro
+      devLog.error('Erro de rede: O servidor backend pode não estar a correr.', 'URL:', api.defaults.baseURL);
       return Promise.reject(error);
     }
     
@@ -34,9 +35,9 @@ api.interceptors.response.use(
       // Token expirado ou inválido - limpar tokens
       localStorage.removeItem('token');
       sessionStorage.removeItem('token');
-      // Redirecionar para login apenas se estiver numa página protegida
+      // Disparar evento customizado para mostrar modal
       if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth/')) {
-        window.location.href = '/auth/login';
+        window.dispatchEvent(new CustomEvent('token-expired'));
       }
     }
     return Promise.reject(error);

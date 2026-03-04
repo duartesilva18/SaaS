@@ -1,14 +1,15 @@
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from uuid import UUID
 
 class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=72)
     language: Optional[str] = 'pt'
+    referral_code: Optional[str] = None  # Código de afiliado (opcional)
 
 class UserResponse(UserBase):
     id: UUID
@@ -23,9 +24,24 @@ class UserResponse(UserBase):
     is_onboarded: bool
     marketing_opt_in: bool
     subscription_status: Optional[str] = 'none'
+    pro_granted_until: Optional[datetime] = None  # Pro concedido por admin até esta data
     terms_accepted: bool = False
     terms_accepted_at: Optional[datetime] = None
+    onboarding_spotlight_seen: bool = False
     created_at: datetime
+    has_password: bool = True  # True = conta criada com email/password; False = só Google/social
+
+    @model_validator(mode='after')
+    def admin_or_granted_has_pro(self):
+        """Contas admin ou com Pro concedido têm subscription_status = active para o frontend."""
+        from datetime import datetime, timezone
+        if self.is_admin and (not self.subscription_status or self.subscription_status not in ('active', 'trialing', 'cancel_at_period_end')):
+            object.__setattr__(self, 'subscription_status', 'active')
+            return self
+        if self.pro_granted_until and self.pro_granted_until > datetime.now(timezone.utc):
+            if self.subscription_status not in ('active', 'trialing', 'cancel_at_period_end'):
+                object.__setattr__(self, 'subscription_status', 'active')
+        return self
 
     class Config:
         from_attributes = True
@@ -40,13 +56,46 @@ class UserUpdateOnboarding(BaseModel):
 class UserUpdateLanguage(BaseModel):
     language: str
 
+
+class UserUpdateEmail(BaseModel):
+    new_email: EmailStr
+    current_password: str
+
+
+class UserChangePassword(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
 class Token(BaseModel):
     access_token: str
     refresh_token: Optional[str] = None
     token_type: str
 
+
+class RegisterResponse(BaseModel):
+    message: str
+    email: str
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: str = 'bearer'
+
+class RegisterPendingResponse(BaseModel):
+    """Resposta do registo quando se envia código por email (sem tokens)."""
+    message: str
+    email: str
+    dev_code: Optional[str] = None  # só em development quando o envio do email falha
+
+class RegisterConfirmRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
@@ -64,6 +113,7 @@ class SocialLoginRequest(BaseModel):
     token: str
     provider: str
     language: Optional[str] = 'pt'
+    referral_code: Optional[str] = None  # Código de afiliado (opcional)
 
 class CategoryBase(BaseModel):
     name: str
@@ -144,19 +194,19 @@ class ZenInsightsResponse(BaseModel):
 
 class RecurringTransactionBase(BaseModel):
     description: str
-    amount_cents: int
-    day_of_month: int
+    amount_cents: int = Field(..., ne=0)
+    day_of_month: int = Field(..., ge=1, le=31)
     category_id: Optional[UUID] = None
     is_active: bool = True
-    process_automatically: bool = False
+    process_automatically: bool = True
 
 class RecurringTransactionCreate(RecurringTransactionBase):
     pass
 
 class RecurringTransactionUpdate(BaseModel):
     description: Optional[str] = None
-    amount_cents: Optional[int] = None
-    day_of_month: Optional[int] = None
+    amount_cents: Optional[int] = Field(None, ne=0)
+    day_of_month: Optional[int] = Field(None, ge=1, le=31)
     category_id: Optional[UUID] = None
     is_active: Optional[bool] = None
     process_automatically: Optional[bool] = None
@@ -267,6 +317,8 @@ class AdminUserResponse(BaseModel):
     phone_number: Optional[str] = None
     marketing_opt_in: bool = False
     subscription_status: str
+    pro_granted_until: Optional[datetime] = None
+    had_refund: bool = False
     created_at: datetime
     is_active: bool
     is_admin: bool
@@ -275,6 +327,12 @@ class AdminUserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class GrantProRequest(BaseModel):
+    """Conceder Pro até uma data ou por N meses."""
+    until: Optional[datetime] = None  # Data limite (UTC)
+    months: Optional[int] = None  # Alternativa: até agora + N meses (ignorado se until for enviado)
 
 class AdminUserDetail(AdminUserResponse):
     workspaces: List[WorkspaceResponse]
@@ -297,8 +355,9 @@ class BroadcastRequest(BaseModel):
 # Metas de Poupança
 class SavingsGoalBase(BaseModel):
     name: str
-    target_amount_cents: int
-    current_amount_cents: int = 0
+    goal_type: str = 'expense'
+    target_amount_cents: int = Field(..., gt=0)
+    current_amount_cents: int = Field(0, ge=0)
     target_date: date
     icon: str = 'Target'
     color_hex: str = '#3B82F6'
@@ -308,8 +367,9 @@ class SavingsGoalCreate(SavingsGoalBase):
 
 class SavingsGoalUpdate(BaseModel):
     name: Optional[str] = None
-    target_amount_cents: Optional[int] = None
-    current_amount_cents: Optional[int] = None
+    goal_type: Optional[str] = None
+    target_amount_cents: Optional[int] = Field(None, gt=0)
+    current_amount_cents: Optional[int] = Field(None, ge=0)
     target_date: Optional[date] = None
     icon: Optional[str] = None
     color_hex: Optional[str] = None
@@ -323,3 +383,102 @@ class SavingsGoalResponse(SavingsGoalBase):
     class Config:
         from_attributes = True
 
+# Schemas de Afiliados
+class AffiliateRequest(BaseModel):
+    """Solicitação para se tornar afiliado"""
+    pass
+
+class AffiliateResponse(BaseModel):
+    """Resposta com informações do afiliado"""
+    is_affiliate: bool
+    affiliate_code: Optional[str] = None
+    affiliate_link: Optional[str] = None
+    total_referrals: int = 0
+    total_conversions: int = 0
+    total_earnings_cents: int = 0
+    pending_earnings_cents: int = 0
+    stripe_connect_configured: bool = False  # Se tem Stripe Connect configurado e ativo
+    stripe_connect_account_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class AffiliateReferralResponse(BaseModel):
+    """Informações de uma referência"""
+    id: UUID
+    referred_user_email: str
+    referred_user_full_name: Optional[str] = None
+    has_subscribed: bool
+    subscription_date: Optional[datetime] = None
+    created_at: datetime
+    payment_info: Optional[dict] = None  # Informações de pagamento do Stripe
+
+    class Config:
+        from_attributes = True
+
+class AffiliateStats(BaseModel):
+    """Estatísticas do afiliado"""
+    total_referrals: int
+    total_conversions: int
+    conversion_rate: float
+    total_earnings_cents: int
+    pending_earnings_cents: int
+    paid_earnings_cents: int
+    commission_plus_percent: Optional[float] = 20.0  # Comissão plano Plus (editável pelo admin)
+    commission_pro_percent: Optional[float] = 25.0  # Comissão plano Pro (editável pelo admin)
+    referrals: List[AffiliateReferralResponse]
+    monthly_commissions: List[dict]  # {month: str, revenue_cents: int, commission_cents: int, conversions: int}
+    weekly_revenue: List[dict]  # {week: str, revenue_cents: int, commission_cents: int, week_label: str}
+
+class AffiliateCommissionResponse(BaseModel):
+    """Comissão mensal"""
+    id: UUID
+    month: date
+    total_revenue_cents: int
+    commission_percentage: float
+    commission_amount_cents: int
+    referrals_count: int
+    conversions_count: int
+    is_paid: bool
+    paid_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Schemas Admin Afiliados
+class AdminAffiliateResponse(BaseModel):
+    """Resposta admin com informações do afiliado"""
+    user_id: UUID
+    email: str
+    full_name: Optional[str] = None
+    affiliate_code: Optional[str] = None
+    is_affiliate: bool
+    total_referrals: int
+    total_conversions: int
+    total_earnings_cents: int
+    created_at: datetime
+
+class AdminAffiliateDetail(AdminAffiliateResponse):
+    """Detalhes completos do afiliado para admin"""
+    referrals: List[AffiliateReferralResponse]
+    commissions: List[AffiliateCommissionResponse]
+
+class PromoteToAffiliateRequest(BaseModel):
+    """Promover utilizador a afiliado"""
+    user_id: UUID
+
+class AffiliateSettingsUpdate(BaseModel):
+    """Atualizar percentagem de comissão"""
+    commission_percentage: float = Field(..., ge=0, le=100)
+
+
+class ProjectExpenseCreate(BaseModel):
+    """Criar despesa do projeto (admin)"""
+    description: str = Field(..., min_length=1, max_length=500)
+    amount_cents: int = Field(..., gt=0, le=99999999)
+    expense_date: Optional[date] = Field(None, alias='date')  # JSON: "date" (ISO YYYY-MM-DD)
+
+    class Config:
+        extra = 'ignore'
+        populate_by_name = True

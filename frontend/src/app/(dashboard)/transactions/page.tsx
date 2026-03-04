@@ -7,13 +7,25 @@ import {
   Plus, Search, ArrowUpRight, ArrowDownRight, 
   Calendar, Tag, History, Check, X, Wallet, 
   ChevronDown, Sparkles, Activity, CreditCard,
-  Edit2, Trash2, Info, Filter, SearchX
+  Edit2, Trash2, Info, Filter, SearchX,
+  ArrowUpCircle, ArrowDownCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useRouter } from 'next/navigation';
+import { useUser } from '@/lib/UserContext';
 import Toast from '@/components/Toast';
+import ConfirmModal from '@/components/ConfirmModal';
 import { TransactionSkeleton } from '@/components/LoadingSkeleton';
+import PageLoading from '@/components/PageLoading';
+import { useTransactions, useCategories, useDebouncedValue } from '@/lib/hooks';
+import dynamic from 'next/dynamic';
+import { ChartSkeleton } from '@/components/LoadingSkeleton';
+
+const TransactionChartsPanel = dynamic(
+  () => import('@/components/TransactionChartsPanel'),
+  { ssr: false, loading: () => <div className="space-y-6 lg:space-y-8"><ChartSkeleton /><ChartSkeleton /></div> }
+);
 
 interface Transaction {
   id: string;
@@ -28,69 +40,108 @@ interface Category {
   id: string;
   name: string;
   type: 'income' | 'expense';
+  vault_type: string;
   color_hex: string;
 }
 
 function TransactionsPageContent() {
   const { t, formatCurrency, currency } = useTranslation();
+  const router = useRouter();
+  const { user, isPro, loading: userLoading } = useUser();
   const searchParams = useSearchParams();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { transactions: transactionsFromHook, isLoading: transactionsLoading, mutate: mutateTransactions } = useTransactions();
+  const { categories: categoriesFromHook, isLoading: categoriesLoading, mutate: mutateCategories } = useCategories();
+  const transactions = (transactionsFromHook as Transaction[] | undefined) ?? [];
+  const categories = (categoriesFromHook as Category[] | undefined) ?? [];
+  const loading = transactionsLoading || categoriesLoading;
+
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
   const [activeTab, setActiveTab] = useState<'all' | 'income' | 'expense'>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null); // NEW: For confirm delete modal
+  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [evolutionPeriod, setEvolutionPeriod] = useState<'weekly' | 'daily'>('weekly');
+  const itemsPerPage = 13;
   
   const [toastInfo, setToastInfo] = useState<{ message: string; type: 'success' | 'error'; isVisible: boolean }>({
     message: '',
     type: 'success',
     isVisible: false
   });
-
+ 
   const [formData, setFormData] = useState({
+    transaction_type: '' as '' | 'income' | 'expense',
     amount: '',
     description: '',
     category_id: '',
     transaction_date: new Date().toISOString().split('T')[0]
   });
 
-  const fetchData = async () => {
-    try {
-      const [transRes, catRes] = await Promise.all([
-        api.get('/transactions/'),
-        api.get('/categories/')
-      ]);
-      // Filtrar transações de seed (1 cêntimo) - não devem aparecer nem ser contabilizadas
-      setTransactions(transRes.data.filter((t: any) => Math.abs(t.amount_cents) !== 1));
-      setCategories(catRes.data);
-    } catch (err: any) {
-      console.error('Erro ao carregar dados:', err);
-      
-      // Se for erro de rede, mostrar mensagem mais útil
-      if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        console.error('Erro de rede: O servidor backend pode não estar a correr. Verifica se o servidor está ativo em', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const refetchData = useMemo(() => () => {
+    mutateTransactions();
+    mutateCategories();
+  }, [mutateTransactions, mutateCategories]);
 
+  // Guardar acesso: apenas utilizadores Pro podem usar /transactions
   useEffect(() => {
-    fetchData();
-    
-    // Atualizar dados automaticamente a cada 60 segundos (reduzido de 30s para melhor performance)
+    if (userLoading) return;
+    if (!user) {
+      // Sem sessão → manda para login/dashboard conforme fluxo global
+      router.replace('/dashboard');
+      return;
+    }
+    if (!isPro) {
+      // Mostrar alerta bonito e redirecionar para o dashboard
+      setToastInfo({
+        message: t.dashboard?.transactions?.proRequiredMessage 
+          ?? 'Funcionalidade disponível apenas para utilizadores Pro. Atualiza o teu plano para aceder às transações.',
+        type: 'error',
+        isVisible: true,
+      });
+      const timeout = setTimeout(() => {
+        router.replace('/dashboard');
+      }, 2500);
+      return () => clearTimeout(timeout);
+    }
+  }, [userLoading, user, isPro, router]);
+
+  // Atualizar dados a cada 60s apenas quando o separador está visível
+  useEffect(() => {
     const interval = setInterval(() => {
-      fetchData();
-    }, 60000); // 60 segundos
-    
+      if (typeof document !== 'undefined' && !document.hidden) {
+        refetchData();
+      }
+    }, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refetchData]);
+
+  // Refetch quando se navega para esta página pelo header/sidebar (corrige conteúdo em branco)
+  useEffect(() => {
+    const onRouteChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { pathname?: string };
+      if (detail?.pathname === '/transactions') refetchData();
+    };
+    window.addEventListener('dashboard-route-change', onRouteChange);
+    return () => window.removeEventListener('dashboard-route-change', onRouteChange);
+  }, [refetchData]);
+
+  // Verificar parâmetros de URL: ?add=1 abre o modal de inserção (ex.: vindo do dashboard "Nova transação")
+  useEffect(() => {
+    if (searchParams.get('add') === '1') {
+      setShowAddModal(true);
+      setEditingTransaction(null);
+      setFormData({ transaction_type: '' as '' | 'income' | 'expense', amount: '', description: '', category_id: '', transaction_date: new Date().toISOString().split('T')[0] });
+      window.history.replaceState({}, '', '/transactions');
+      return;
+    }
+  }, [searchParams]);
 
   // Verificar parâmetros de URL para abrir modal de cofre
   useEffect(() => {
@@ -103,6 +154,7 @@ function TransactionsPageContent() {
       if (category) {
         setFormData(prev => ({
           ...prev,
+          transaction_type: category.type as 'income' | 'expense',
           category_id: categoryId,
           description: action === 'add' ? `${t.dashboard.transactions.depositIn} ${category.name}` : `${t.dashboard.transactions.withdrawalFrom} ${category.name}`
         }));
@@ -111,18 +163,23 @@ function TransactionsPageContent() {
         window.history.replaceState({}, '', '/transactions');
       }
     }
-  }, [searchParams, categories]);
+  }, [searchParams, categories, t.dashboard.transactions.depositIn, t.dashboard.transactions.withdrawalFrom]);
 
   const filteredTransactions = useMemo(() => {
     return [...transactions]
-      .filter(t => {
-        const cat = categories.find(c => c.id === t.category_id);
-        const matchesSearch = t.description?.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesTab = activeTab === 'all' || cat?.type === activeTab;
-        const matchesCategory = selectedCategory === 'all' || t.category_id === selectedCategory;
+      .filter(tx => {
+        const cat = categories.find(c => c.id === tx.category_id);
+        const matchesSearch = tx.description?.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
+        
+        let transactionType: 'income' | 'expense' | null = null;
+        if (cat) transactionType = cat.type;
+        else transactionType = tx.amount_cents > 0 ? 'income' : 'expense';
+        
+        const matchesTab = activeTab === 'all' || transactionType === activeTab;
+        const matchesCategory = selectedCategory === 'all' || tx.category_id === selectedCategory;
         return matchesSearch && matchesTab && matchesCategory;
       });
-  }, [transactions, categories, searchTerm, activeTab, selectedCategory]);
+  }, [transactions, categories, debouncedSearchTerm, activeTab, selectedCategory]);
 
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
   const paginatedTransactions = useMemo(() => {
@@ -132,35 +189,66 @@ function TransactionsPageContent() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, activeTab, selectedCategory]);
+  }, [debouncedSearchTerm, activeTab, selectedCategory]);
 
   const stats = useMemo(() => {
     // Backend garante sinais corretos: income > 0, expense < 0
-    // Frontend confia nos sinais (sem Math.abs() nos cálculos)
+    // Se não houver categoria, usar sinal do amount_cents
+    // Calcular com TODAS as transações (não apenas filtradas)
     const income = transactions
       .filter(t => {
         const cat = categories.find(c => c.id === t.category_id);
-        return cat?.type === 'income' && cat?.vault_type === 'none'; // Excluir vault
+        if (cat) {
+          return cat.type === 'income' && cat.vault_type === 'none'; // Excluir vault
+        } else {
+          // Sem categoria: usar sinal do amount_cents
+          return t.amount_cents > 0;
+        }
       })
-      .reduce((acc, curr) => acc + curr.amount_cents, 0) / 100; // Já é positivo
+      .reduce((acc: number, curr: any) => acc + Math.abs(curr.amount_cents), 0) / 100; // Usar valor absoluto para segurança
     
     // Despesas são negativas, converter para positivo
     const expenses = transactions
       .filter(t => {
         const cat = categories.find(c => c.id === t.category_id);
-        return cat?.type === 'expense' && cat?.vault_type === 'none'; // Excluir vault
+        if (cat) {
+          return cat.type === 'expense' && cat.vault_type === 'none'; // Excluir vault
+        } else {
+          // Sem categoria: usar sinal do amount_cents
+          return t.amount_cents < 0;
+        }
       })
-      .reduce((acc, curr) => acc + curr.amount_cents, 0) / -100; // Converte negativo para positivo
+      .reduce((acc: number, curr: any) => acc + Math.abs(curr.amount_cents), 0) / 100; // Usar valor absoluto
     
     return { income, expenses, balance: income - expenses };
   }, [transactions, categories]);
 
+  const categoriesByType = useMemo(() => {
+    if (formData.transaction_type === 'income') {
+      return categories.filter(c => c.type === 'income' || (c.type === 'expense' && c.vault_type !== 'none'));
+    }
+    if (formData.transaction_type === 'expense') {
+      return categories.filter(c => c.type === 'expense');
+    }
+    return [];
+  }, [formData.transaction_type, categories]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Normalizar valor para suportar vírgula e ponto
+      const normalizedAmount = formData.amount.replace(',', '.');
+      const parsedAmount = parseFloat(normalizedAmount);
+
       // Validar que o valor foi inserido
-      if (!formData.amount || formData.amount.trim() === '' || parseFloat(formData.amount) <= 0) {
+      if (!formData.amount || formData.amount.trim() === '' || isNaN(parsedAmount) || parsedAmount <= 0) {
         setToastInfo({ message: t.dashboard.transactions.validation.invalidAmount, type: 'error', isVisible: true });
+        return;
+      }
+
+      // Validar que o tipo foi selecionado (receita vs despesa)
+      if (!formData.transaction_type) {
+        setToastInfo({ message: (t.dashboard.transactions.validation as any)?.noType ?? 'Seleciona o tipo (receita ou despesa).', type: 'error', isVisible: true });
         return;
       }
 
@@ -195,7 +283,7 @@ function TransactionsPageContent() {
       // vault deposit → amount_cents > 0 (independente do type)
       // vault withdraw → amount_cents < 0 (independente do type)
       
-      let amount_cents = Math.round(parseFloat(formData.amount) * 100);
+      let amount_cents = Math.round(parsedAmount * 100);
       const isVaultCategory = selectedCategory.vault_type !== 'none';
       
       // Determinar sinal baseado no tipo da categoria
@@ -227,7 +315,7 @@ function TransactionsPageContent() {
         });
         
         // Calcular saldo: depósitos (positivos) aumentam, resgates (negativos) diminuem
-        const vaultBalance = vaultTransactions.reduce((balance, t) => {
+        const vaultBalance = vaultTransactions.reduce((balance: number, t: any) => {
           if (t.amount_cents > 0) {
             return balance + t.amount_cents; // Depósito (já é positivo)
           } else {
@@ -254,7 +342,7 @@ function TransactionsPageContent() {
 
       // Validar que amount_cents não é zero
       if (amount_cents === 0) {
-        setToastInfo({ message: "O valor da transação não pode ser zero.", type: 'error', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.zeroAmount, type: 'error', isVisible: true });
         return;
       }
 
@@ -276,7 +364,7 @@ function TransactionsPageContent() {
 
       if (editingTransaction) {
         await api.patch(`/transactions/${editingTransaction.id}`, payload);
-        setToastInfo({ message: "Transação atualizada!", type: 'success', isVisible: true });
+        setToastInfo({ message: t.dashboard.transactions.updateSuccess, type: 'success', isVisible: true });
       } else {
         await api.post('/transactions/', payload);
         setToastInfo({ message: t.dashboard.transactions.success, type: 'success', isVisible: true });
@@ -286,13 +374,14 @@ function TransactionsPageContent() {
       setEditingTransaction(null);
       setSelectedTransaction(null); // Reset selection
       setFormData({
+        transaction_type: '' as '' | 'income' | 'expense',
         amount: '',
         description: '',
         category_id: '',
         transaction_date: new Date().toISOString().split('T')[0]
       });
       // Atualizar dados imediatamente após criar/editar
-      await fetchData();
+      refetchData();
     } catch (err: any) {
       console.error('Erro ao processar transação:', err);
       console.error('Resposta do erro:', err.response?.data);
@@ -329,31 +418,76 @@ function TransactionsPageContent() {
 
   const handleDelete = async () => {
     if (!transactionToDelete) return;
+    setIsDeleting(true);
     try {
-      // Garantir que o ID está no formato correto
       const transactionId = String(transactionToDelete).trim();
-      console.log('Eliminando transação com ID:', transactionId);
-      
       await api.delete(`/transactions/${transactionId}`);
-      setToastInfo({ message: "Transação eliminada.", type: 'success', isVisible: true });
-      setTransactionToDelete(null);
       setSelectedTransaction(null);
-      // Atualizar dados imediatamente após eliminar
-      await fetchData();
+      refetchData();
+      setToastInfo({ message: t.dashboard.transactions.deleteSuccess, type: 'success', isVisible: true });
     } catch (err: any) {
       console.error('Erro ao eliminar transação:', err);
-      console.error('ID da transação:', transactionToDelete);
-      console.error('Resposta do erro:', err.response?.data);
       const errorMessage = err.response?.data?.detail || err.message || t.dashboard.transactions.deleteError;
       setToastInfo({ message: errorMessage, type: 'error', isVisible: true });
+    } finally {
+      setIsDeleting(false);
       setTransactionToDelete(null);
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setIsDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await api.post('/transactions/bulk-delete', { ids });
+      setSelectedIds(new Set());
+      refetchData();
+      const msg = (t.dashboard.transactions as any).bulkDeleteSuccess
+        ?? `${ids.length} transações eliminadas.`;
+      setToastInfo({ message: msg, type: 'success', isVisible: true });
+    } catch (err: any) {
+      console.error('Erro ao eliminar transações em massa:', err);
+      const errorMessage = err.response?.data?.detail || err.message || t.dashboard.transactions.deleteError;
+      setToastInfo({ message: errorMessage, type: 'error', isVisible: true });
+    } finally {
+      setIsDeleting(false);
+      setBulkDeleteConfirm(false);
+    }
+  };
+
+  const toggleSelectId = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const pageIds = paginatedTransactions.map(tx => tx.id);
+    const allSelected = pageIds.every(id => selectedIds.has(id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pageIds.forEach(id => next.delete(id));
+      } else {
+        pageIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
   const handleEdit = (t: Transaction) => {
     setEditingTransaction(t);
+    const category = categories.find(c => c.id === t.category_id);
+    const transactionType: '' | 'income' | 'expense' = category
+      ? category.type
+      : (t.amount_cents >= 0 ? 'income' : 'expense');
     setFormData({
-      amount: (t.amount_cents / 100).toString(),
+      transaction_type: transactionType,
+      amount: Math.abs(t.amount_cents / 100).toString(),
       description: t.description,
       category_id: t.category_id,
       transaction_date: t.transaction_date
@@ -362,83 +496,90 @@ function TransactionsPageContent() {
     setShowAddModal(true);
   };
 
-  if (loading) {
-    return (
-      <div className="max-w-[1400px] mx-auto space-y-12 pb-20 px-2 md:px-0">
-        <div className="space-y-6">
-          <div className="h-32 bg-slate-900/40 rounded-2xl animate-pulse" />
-          <TransactionSkeleton />
-        </div>
-      </div>
-    );
+  if (loading || userLoading || !user || !isPro) {
+    return <PageLoading />;
   }
 
   return (
     <motion.div 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
-      className="max-w-[1400px] mx-auto space-y-12 pb-20 px-2 md:px-0"
+      className="w-full space-y-12 pb-20 px-4 md:px-6 lg:px-8"
     >
       {/* Hero Header */}
       <section className="relative">
-        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-10">
-          <div>
-            <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-1.5 rounded-full mb-6">
-              <Sparkles size={14} className="text-blue-400" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">{t.dashboard.transactions.yourAbundanceDiary}</span>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-lg mb-3">
+              <Sparkles size={12} className="text-blue-400" />
+              <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400">{t.dashboard.transactions.yourAbundanceDiary}</span>
             </div>
-            <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
-              {t.dashboard.transactions.activityRecord} <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 italic">{t.dashboard.transactions.activity}</span>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tighter text-white mb-1">
+              {t.dashboard.transactions.activityRecord}
             </h1>
+            <p className="text-slate-500 text-xs sm:text-sm font-medium italic">{t.dashboard.transactions.activity}</p>
           </div>
+          <button
+            onClick={() => {
+              setEditingTransaction(null);
+              setFormData({ transaction_type: '' as '' | 'income' | 'expense', amount: '', description: '', category_id: '', transaction_date: new Date().toISOString().split('T')[0] });
+              setShowAddModal(true);
+            }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer shadow-lg shadow-blue-600/20 shrink-0 w-full sm:w-auto"
+          >
+            <Plus size={16} className="shrink-0" />
+            <span>{t.dashboard.transactions.addNew}</span>
+          </button>
+        </div>
 
-          <div className="flex flex-wrap gap-4">
-            <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-6 rounded-[32px] min-w-[200px] shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 blur-[40px] rounded-full" />
-              <div className="flex items-center gap-3 mb-2 text-slate-500">
-                <ArrowUpRight size={16} className="text-emerald-500" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.totalIncome}</span>
+        {/* Stats row */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 p-4 rounded-2xl shadow-2xl">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                <ArrowUpRight size={14} className="text-emerald-400" />
               </div>
-              <p className="text-3xl font-black text-white">{formatCurrency(stats.income / 100)}</p>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.totalIncome}</span>
             </div>
-
-            <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-6 rounded-[32px] min-w-[200px] shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/5 blur-[40px] rounded-full" />
-              <div className="flex items-center gap-3 mb-2 text-slate-500">
-                <ArrowDownRight size={16} className="text-red-500" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.totalExpenses}</span>
+            <p className="text-lg sm:text-xl font-black text-emerald-400 tabular-nums truncate">{formatCurrency(stats.income)}</p>
+          </div>
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 p-4 rounded-2xl shadow-2xl">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <ArrowDownRight size={14} className="text-red-400" />
               </div>
-              <p className="text-3xl font-black text-white">{formatCurrency(stats.expenses / 100)}</p>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.totalExpenses}</span>
             </div>
-            
-            <button
-              onClick={() => {
-                setEditingTransaction(null);
-                // Não pré-selecionar categoria - deixar o utilizador escolher
-                setFormData({ amount: '', description: '', category_id: '', transaction_date: new Date().toISOString().split('T')[0] });
-                setShowAddModal(true);
-              }}
-              className="flex items-center gap-3 px-8 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-xs transition-all shadow-2xl shadow-blue-600/30 group active:scale-95 cursor-pointer h-full"
-            >
-              <Plus size={20} className="group-hover:rotate-90 transition-transform" />
-              {t.dashboard.transactions.addNew}
-            </button>
+            <p className="text-lg sm:text-xl font-black text-red-400 tabular-nums truncate">{formatCurrency(stats.expenses)}</p>
+          </div>
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 p-4 rounded-2xl shadow-2xl col-span-2 sm:col-span-1">
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center border ${(stats.income - stats.expenses) >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                <Wallet size={14} className={(stats.income - stats.expenses) >= 0 ? 'text-emerald-400' : 'text-red-400'} />
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Balanço</span>
+            </div>
+            <p className={`text-lg sm:text-xl font-black tabular-nums truncate ${(stats.income - stats.expenses) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {(stats.income - stats.expenses) >= 0 ? '+' : ''}{formatCurrency(stats.income - stats.expenses)}
+            </p>
           </div>
         </div>
       </section>
 
       {/* Filters & Search */}
-      <section className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 rounded-[40px] p-8">
-        <div className="flex flex-col lg:flex-row gap-8 items-center justify-between mb-6">
-          <div className="flex items-center gap-4 bg-slate-950/50 border border-slate-800 rounded-3xl p-1.5 w-full lg:w-auto">
-            {['all', 'income', 'expense'].map((tab) => (
+      <section className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Tabs */}
+          <div className="flex items-center bg-slate-950/60 border border-slate-700/50 rounded-xl p-1 shrink-0">
+            {(['all', 'income', 'expense'] as const).map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
-                className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                onClick={() => setActiveTab(tab)}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
                   activeTab === tab 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                  ? tab === 'income' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' 
+                    : tab === 'expense' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20'
+                    : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
                   : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
@@ -447,165 +588,301 @@ function TransactionsPageContent() {
             ))}
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-4 w-full lg:w-auto flex-1 max-w-3xl">
+          {/* Search & Category filter */}
+          <div className="flex flex-col sm:flex-row gap-3 flex-1">
             <div className="relative flex-1 group">
-              <Search size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
               <input 
                 type="text" 
                 placeholder={t.dashboard.transactions.searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-950/50 border border-slate-800 rounded-3xl py-4 pl-14 pr-5 text-white placeholder:text-slate-800 focus:border-blue-500/50 transition-all outline-none font-medium"
+                className="w-full bg-slate-950/60 border border-slate-700/50 rounded-xl py-2.5 pl-10 pr-4 text-white placeholder:text-slate-600 focus:border-blue-500/40 transition-all outline-none font-medium text-sm"
               />
             </div>
-
-            <div className="relative group min-w-[200px]">
-              <Tag size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            <div className="relative sm:min-w-[180px]">
+              <Tag size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full bg-slate-950/50 border border-slate-800 rounded-3xl py-4 pl-14 pr-10 text-white appearance-none focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
+                className="w-full bg-slate-950/60 border border-slate-700/50 rounded-xl py-2.5 pl-10 pr-8 text-sm text-white appearance-none focus:border-blue-500/40 transition-all outline-none font-medium cursor-pointer"
               >
                 <option value="all">{t.dashboard.transactions.allCategories}</option>
                 {categories.map(c => (
                   <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
                 ))}
               </select>
-              <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 px-4 py-3 bg-blue-500/5 border border-blue-500/10 rounded-2xl w-fit">
-          <Info size={14} className="text-blue-400" />
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-500/5 border border-blue-500/10 rounded-lg w-fit">
+          <Info size={12} className="text-blue-400 shrink-0" />
+          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
             {t.dashboard.transactions.zenTip} <span className="text-blue-400">{t.dashboard.transactions.zenTipText.split('Clica em qualquer linha')[0]}</span>{t.dashboard.transactions.zenTipText.split('Clica em qualquer linha')[1]}
           </p>
         </div>
       </section>
 
-      {/* Transactions List */}
-      <section className="bg-slate-900/40 backdrop-blur-xl border border-slate-800 rounded-[40px] overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800/50">
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.transactions.table.date}</th>
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.transactions.table.description}</th>
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.transactions.table.category}</th>
-                <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 text-right">{t.dashboard.transactions.table.amount}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/30">
-              <AnimatePresence mode="popLayout">
-                {paginatedTransactions.map((t, index) => {
-                  const cat = categories.find(c => c.id === t.category_id);
-                  return (
-                    <motion.tr 
-                      key={t.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ delay: index * 0.05 }}
-                      onClick={() => setSelectedTransaction(t)}
-                      className="group hover:bg-white/[0.02] transition-colors cursor-pointer"
-                    >
-                      <td className="px-8 py-6">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-black text-white">{new Date(t.transaction_date).getDate()}</span>
-                          <span className="text-[9px] font-black uppercase text-slate-600 tracking-tighter">
-                            {new Date(t.transaction_date).toLocaleString('default', { month: 'short' })} {new Date(t.transaction_date).getFullYear()}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6">
-                        <p className="text-sm font-black text-white group-hover:text-blue-400 transition-colors">{t.description}</p>
-                      </td>
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat?.color_hex || '#3b82f6' }} />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{cat?.name || t.dashboard.transactions.noCategory}</span>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6 text-right">
-                        <span className={`text-sm font-black ${cat?.type === 'income' ? 'text-emerald-400' : 'text-white'}`}>
-                          {cat?.type === 'income' ? '+' : '-'}{formatCurrency(Math.abs(t.amount_cents) / 100)}
-                        </span>
-                      </td>
-                    </motion.tr>
-                  );
-                })}
-              </AnimatePresence>
-            </tbody>
-          </table>
-          
-          {filteredTransactions.length === 0 && (
-            <div className="py-32 flex flex-col items-center justify-center text-center">
-              <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mb-8 border border-slate-800 shadow-2xl">
-                <SearchX size={32} className="text-slate-700 animate-pulse" />
+      {/* Transactions List & Charts */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6 items-start">
+        {/* Left: Transactions Table (desktop) / Cards (mobile) */}
+        <section className="xl:col-span-2 bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-2xl overflow-hidden shadow-2xl h-fit">
+
+        {/* Bulk action bar */}
+        <AnimatePresence>
+          {selectedIds.size > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-4 py-2.5 bg-red-500/10 border-b border-red-500/20">
+                <span className="text-xs font-bold text-red-400">
+                  {selectedIds.size} {(t.dashboard.transactions as any).selectedCount ?? 'selecionadas'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white border border-slate-700/50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    {(t.dashboard.transactions as any).clearSelection ?? 'Limpar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkDeleteConfirm(true)}
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:text-white bg-red-500/20 hover:bg-red-600 border border-red-500/30 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trash2 size={12} />
+                    {(t.dashboard.transactions as any).deleteSelected ?? 'Eliminar selecionadas'}
+                  </button>
+                </div>
               </div>
-              <h3 className="text-xl font-black text-white mb-2">Nenhuma transação encontrada</h3>
-              <p className="text-slate-500 text-sm font-medium italic max-w-xs mx-auto">
-                Tenta ajustar os teus filtros ou pesquisa por algo diferente.
-              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Mobile: card list */}
+        <div className="md:hidden px-3 py-3 space-y-2">
+          {filteredTransactions.length === 0 ? (
+            <div className="py-14 flex flex-col items-center justify-center text-center">
+              <div className="w-14 h-14 bg-slate-800/80 rounded-xl flex items-center justify-center mb-4 border border-slate-700/50">
+                <SearchX size={24} className="text-slate-600" />
+              </div>
+              <h3 className="text-sm font-bold text-white mb-1">{t.dashboard.transactions.noResultsTitle}</h3>
+              <p className="text-slate-500 text-xs font-medium italic max-w-xs mx-auto">{t.dashboard.transactions.noResultsHint}</p>
             </div>
+          ) : (
+            <>
+              {paginatedTransactions.map((transaction, i) => {
+                const cat = categories.find(c => c.id === transaction.category_id);
+                const isIncome = cat && cat.vault_type !== 'none'
+                  ? transaction.amount_cents > 0
+                  : (cat ? cat.type === 'income' : transaction.amount_cents > 0);
+                const isChecked = selectedIds.has(transaction.id);
+                return (
+                  <motion.div
+                    key={transaction.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.02 }}
+                    className={`flex items-center gap-2 bg-slate-950/50 hover:bg-slate-800/60 border rounded-xl p-3 transition-all touch-manipulation ${isChecked ? 'border-red-500/40 bg-red-500/5' : 'border-slate-700/30 hover:border-slate-600/50'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSelectId(transaction.id)}
+                      className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors cursor-pointer ${isChecked ? 'bg-red-500 border-red-500 text-white' : 'border-slate-600 hover:border-slate-400'}`}
+                    >
+                      {isChecked && <Check size={12} strokeWidth={3} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTransaction(transaction)}
+                      className="flex-1 text-left min-w-0"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isIncome ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                            {isIncome ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-white truncate">{transaction.description}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[9px] font-bold text-slate-500">
+                                {new Date(transaction.transaction_date).toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })}
+                              </span>
+                              <span className="text-slate-700">·</span>
+                              <div className="flex items-center gap-1 min-w-0">
+                                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cat?.color_hex || '#3b82f6' }} />
+                                <span className="text-[9px] font-bold text-slate-500 truncate">{cat?.name || t.dashboard.transactions.noCategory}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`text-sm font-black shrink-0 tabular-nums ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {isIncome ? '+' : '-'}{formatCurrency(Math.abs(transaction.amount_cents) / 100)}
+                        </span>
+                      </div>
+                    </button>
+                  </motion.div>
+                );
+              })}
+              {filteredTransactions.length > itemsPerPage && (
+                <div className="pt-3 flex items-center justify-between gap-3 border-t border-slate-700/30">
+                  <p className="text-[9px] font-bold text-slate-500 tabular-nums">
+                    {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, filteredTransactions.length)} / {filteredTransactions.length}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button disabled={currentPage === 1} onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} className="p-1.5 rounded-lg border border-slate-700/50 text-slate-500 hover:text-white disabled:opacity-30 transition-all cursor-pointer touch-manipulation">
+                      <ChevronDown size={14} className="rotate-90" />
+                    </button>
+                    <span className="text-[10px] font-bold text-white px-2 tabular-nums">{currentPage}/{totalPages}</span>
+                    <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} className="p-1.5 rounded-lg border border-slate-700/50 text-slate-500 hover:text-white disabled:opacity-30 transition-all cursor-pointer touch-manipulation">
+                      <ChevronDown size={14} className="-rotate-90" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* Pagination Controls */}
-        {filteredTransactions.length > itemsPerPage && (
-          <div className="px-8 py-6 border-t border-slate-800/50 flex items-center justify-between bg-slate-900/20">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-              Mostrando <span className="text-white">{(currentPage - 1) * itemsPerPage + 1}</span> a <span className="text-white">{Math.min(currentPage * itemsPerPage, filteredTransactions.length)}</span> de <span className="text-white">{filteredTransactions.length}</span>
-            </p>
-            
-            <div className="flex items-center gap-2">
-              <button
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                className="p-2 rounded-xl border border-slate-800 text-slate-500 hover:text-white hover:border-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
-              >
-                <ChevronDown size={18} className="rotate-90" />
-              </button>
-              
-              <div className="flex items-center gap-1">
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter(page => {
-                    // Mostrar primeira, última, e páginas ao redor da atual
-                    return page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1);
-                  })
-                  .map((page, index, array) => (
-                    <div key={page} className="flex items-center gap-1">
-                      {index > 0 && array[index - 1] !== page - 1 && (
-                        <span className="text-slate-700 px-1">...</span>
-                      )}
-                      <button
-                        onClick={() => setCurrentPage(page)}
-                        className={`w-8 h-8 rounded-xl text-[10px] font-black transition-all cursor-pointer ${
-                          currentPage === page 
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
-                        }`}
+        {/* Desktop: tabela com paginação */}
+        <div className="hidden md:block overflow-x-auto">
+          <div className="inline-block min-w-full align-middle">
+            <table className="w-full text-left border-collapse min-w-[600px]">
+              <thead>
+                <tr className="border-b border-slate-700/40">
+                  <th className="pl-4 pr-1 py-3 w-10">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAll}
+                      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer ${
+                        paginatedTransactions.length > 0 && paginatedTransactions.every(tx => selectedIds.has(tx.id))
+                          ? 'bg-red-500 border-red-500 text-white'
+                          : 'border-slate-600 hover:border-slate-400'
+                      }`}
+                    >
+                      {paginatedTransactions.length > 0 && paginatedTransactions.every(tx => selectedIds.has(tx.id)) && <Check size={12} strokeWidth={3} />}
+                    </button>
+                  </th>
+                  <th className="px-5 py-3 text-[9px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.table.date}</th>
+                  <th className="px-5 py-3 text-[9px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.table.description}</th>
+                  <th className="px-5 py-3 text-[9px] font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell">{t.dashboard.transactions.table.category}</th>
+                  <th className="px-5 py-3 text-[9px] font-bold uppercase tracking-wider text-slate-500 text-right">{t.dashboard.transactions.table.amount}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/20">
+                <AnimatePresence mode="popLayout">
+                  {paginatedTransactions.map((transaction, index) => {
+                    const cat = categories.find(c => c.id === transaction.category_id);
+                    const isIncome = cat && cat.vault_type !== 'none'
+                      ? transaction.amount_cents > 0
+                      : (cat ? cat.type === 'income' : transaction.amount_cents > 0);
+                    const isChecked = selectedIds.has(transaction.id);
+                    return (
+                      <motion.tr 
+                        key={transaction.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, x: -16 }}
+                        transition={{ delay: index * 0.03 }}
+                        className={`group hover:bg-white/[0.03] transition-colors cursor-pointer ${isChecked ? 'bg-red-500/5' : ''}`}
                       >
-                        {page}
-                      </button>
-                    </div>
-                  ))}
+                        <td className="pl-4 pr-1 py-3.5 w-10">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleSelectId(transaction.id); }}
+                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer ${isChecked ? 'bg-red-500 border-red-500 text-white' : 'border-slate-600 hover:border-slate-400'}`}
+                          >
+                            {isChecked && <Check size={12} strokeWidth={3} />}
+                          </button>
+                        </td>
+                        <td className="px-5 py-3.5" onClick={() => setSelectedTransaction(transaction)}>
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-white tabular-nums">{new Date(transaction.transaction_date).getDate()}</span>
+                            <span className="text-[9px] font-bold uppercase text-slate-500">
+                              {new Date(transaction.transaction_date).toLocaleString('default', { month: 'short' })} {new Date(transaction.transaction_date).getFullYear()}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5" onClick={() => setSelectedTransaction(transaction)}>
+                          <p className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors truncate max-w-[250px]">{transaction.description}</p>
+                        </td>
+                        <td className="px-5 py-3.5 hidden sm:table-cell" onClick={() => setSelectedTransaction(transaction)}>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat?.color_hex || '#3b82f6' }} />
+                            <span className="text-[10px] font-bold text-slate-400">{cat?.name || t.dashboard.transactions.noCategory}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-right" onClick={() => setSelectedTransaction(transaction)}>
+                          <span className={`text-sm font-black tabular-nums ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {isIncome ? '+' : '-'}{formatCurrency(Math.abs(transaction.amount_cents) / 100)}
+                          </span>
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
+                </AnimatePresence>
+              </tbody>
+            </table>
+          
+          {filteredTransactions.length === 0 && (
+            <div className="py-20 flex flex-col items-center justify-center text-center">
+              <div className="w-14 h-14 bg-slate-800/80 rounded-xl flex items-center justify-center mb-4 border border-slate-700/50">
+                <SearchX size={24} className="text-slate-600" />
               </div>
+              <h3 className="text-sm font-bold text-white mb-1">{t.dashboard.transactions.noResultsTitle}</h3>
+              <p className="text-slate-500 text-xs italic max-w-xs mx-auto">{t.dashboard.transactions.noResultsHint}</p>
+            </div>
+          )}
+          </div>
+        </div>
 
-              <button
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                className="p-2 rounded-xl border border-slate-800 text-slate-500 hover:text-white hover:border-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
-              >
-                <ChevronDown size={18} className="-rotate-90" />
+        {/* Pagination Controls (desktop) */}
+        {filteredTransactions.length > itemsPerPage && (
+          <div className="hidden md:flex px-5 py-3 border-t border-slate-700/30 items-center justify-between gap-4 bg-slate-950/20">
+            <p className="text-[9px] font-bold text-slate-500 tabular-nums">
+              {t.dashboard.transactions.paginationShowing} {(currentPage - 1) * itemsPerPage + 1} {t.dashboard.transactions.paginationTo} {Math.min(currentPage * itemsPerPage, filteredTransactions.length)} {t.dashboard.transactions.paginationOf} {filteredTransactions.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button disabled={currentPage === 1} onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} className="p-1.5 rounded-lg border border-slate-700/50 text-slate-500 hover:text-white hover:border-slate-600 disabled:opacity-30 transition-all cursor-pointer">
+                <ChevronDown size={14} className="rotate-90" />
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1))
+                .map((page, index, array) => (
+                  <div key={page} className="flex items-center gap-1">
+                    {index > 0 && array[index - 1] !== page - 1 && <span className="text-slate-700 px-0.5 text-xs">…</span>}
+                    <button onClick={() => setCurrentPage(page)} className={`w-7 h-7 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${currentPage === page ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>{page}</button>
+                  </div>
+                ))}
+              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} className="p-1.5 rounded-lg border border-slate-700/50 text-slate-500 hover:text-white hover:border-slate-600 disabled:opacity-30 transition-all cursor-pointer">
+                <ChevronDown size={14} className="-rotate-90" />
               </button>
             </div>
           </div>
         )}
-      </section>
+        </section>
 
-      {/* Add/Edit Modal */}
+        {/* Right: Charts — ocupa 1/3 no xl; em ecrãs menores fica abaixo da tabela */}
+        <TransactionChartsPanel
+          transactions={transactions}
+          categories={categories}
+          evolutionPeriod={evolutionPeriod}
+          setEvolutionPeriod={setEvolutionPeriod}
+          formatCurrency={formatCurrency}
+          noDataChart={t.dashboard.transactions.noDataChart}
+          valueLabel={t.dashboard.transactions.value}
+          incomeLabel={t.dashboard.analytics.income}
+          expensesLabel={t.dashboard.analytics.expenses}
+        />
+      </div>
+
+      {/* Add/Edit Modal — estilo alinhado ao login/dashboard */}
       <AnimatePresence>
         {showAddModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -614,112 +891,151 @@ function TransactionsPageContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowAddModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-[48px] overflow-hidden shadow-2xl"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              className="relative w-full max-w-lg bg-slate-900/95 backdrop-blur-md border border-slate-700/60 rounded-2xl overflow-hidden shadow-2xl"
             >
-              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[80px] rounded-full -z-10" />
-              
-              <div className="p-8 lg:p-12">
-                <div className="flex justify-between items-center mb-10">
-                  <h2 className="text-3xl font-black text-white tracking-tighter">
+              <div className="p-5 sm:p-6">
+                <div className="flex justify-between items-center mb-5 sm:mb-6">
+                  <h2 className="text-lg sm:text-xl font-black text-white tracking-tight truncate">
                     {editingTransaction ? t.dashboard.transactions.editRecord : t.dashboard.transactions.newRecord}
                   </h2>
                   <button onClick={() => {
                     setShowAddModal(false);
                     setEditingTransaction(null);
-                  }} className="p-2 text-slate-500 hover:text-white transition-colors cursor-pointer">
-                    <X size={24} />
+                  }} className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800/50 transition-colors cursor-pointer -m-2">
+                    <X size={20} />
                   </button>
                 </div>
 
-                <form onSubmit={handleSubmit} noValidate className="space-y-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.table.description}</label>
-                    <div className="relative group">
-                      <Activity size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
+                <form onSubmit={handleSubmit} noValidate className="space-y-4 sm:space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                      {t.dashboard.transactions.type ?? 'Tipo'}
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, transaction_type: 'income', category_id: '' }))}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 sm:py-3 rounded-xl border font-bold text-xs sm:text-sm transition-colors cursor-pointer ${
+                          formData.transaction_type === 'income'
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                            : 'bg-slate-950/60 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                        }`}
+                      >
+                        <ArrowUpCircle size={18} className="shrink-0" />
+                        {t.dashboard.transactions.filters?.income ?? 'Receitas'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, transaction_type: 'expense', category_id: '' }))}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 sm:py-3 rounded-xl border font-bold text-xs sm:text-sm transition-colors cursor-pointer ${
+                          formData.transaction_type === 'expense'
+                            ? 'bg-red-500/20 border-red-500/50 text-red-400'
+                            : 'bg-slate-950/60 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                        }`}
+                      >
+                        <ArrowDownCircle size={18} className="shrink-0" />
+                        {t.dashboard.transactions.filters?.expense ?? 'Despesas'}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">{t.dashboard.transactions.table.description}</label>
+                    <div className="relative">
+                      <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                       <input
                         required
                         type="text"
                         value={formData.description}
                         onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                        placeholder="Onde fluiu o dinheiro?"
-                        className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-5 text-white placeholder:text-slate-800 focus:border-blue-500/50 transition-all outline-none font-medium"
+                        placeholder={t.dashboard.transactions.descriptionPlaceholder}
+                        className="w-full bg-slate-950/60 border border-slate-700 rounded-xl py-2.5 sm:py-3 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.value}</label>
-                      <div className="relative group">
-                        <Wallet size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">{t.dashboard.transactions.value}</label>
+                      <div className="relative">
+                        <Wallet size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                         <input
                           required
                           type="number"
                           step="0.01"
+                          inputMode="decimal"
                           value={formData.amount}
                           onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                           placeholder="0.00"
-                          className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-5 text-white focus:border-blue-500/50 transition-all outline-none font-medium"
+                          className="w-full bg-slate-950/60 border border-slate-700 rounded-xl py-2.5 sm:py-3 pl-10 pr-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.date}</label>
-                      <div className="relative group">
-                        <Calendar size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">{t.dashboard.transactions.date}</label>
+                      <div className="relative">
+                        <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                         <input
                           required
                           type="date"
                           max={new Date().toISOString().split('T')[0]}
                           value={formData.transaction_date}
                           onChange={(e) => setFormData({ ...formData, transaction_date: e.target.value })}
-                          className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-5 text-white focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
+                          className="w-full bg-slate-950/60 border border-slate-700 rounded-xl py-2.5 sm:py-3 pl-10 pr-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">{t.dashboard.transactions.category}</label>
-                    <div className="relative group">
-                      <Tag size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">{t.dashboard.transactions.category}</label>
+                    <div className="relative">
+                      <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                       <select
                         required
                         value={formData.category_id}
                         onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
-                        className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-5 pl-14 pr-10 text-white appearance-none focus:border-blue-500/50 transition-all outline-none font-medium cursor-pointer"
+                        disabled={!formData.transaction_type}
+                        className="w-full bg-slate-950/60 border border-slate-700 rounded-xl py-2.5 sm:py-3 pl-10 pr-10 text-sm text-white appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <option value="">{t.dashboard.transactions.selectCategory}</option>
-                        {/* Separar receitas e despesas para facilitar seleção */}
-                        <optgroup label={t.dashboard.transactions.filters.income} className="bg-slate-900">
-                          {categories.filter(c => c.type === 'income').map((c) => (
-                            <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
-                          ))}
-                          {/* Permitir resgates de Fundo de Emergência e Investimentos como receita */}
-                          {categories.filter(c => c.type === 'expense' && c.vault_type !== 'none').map((c) => (
-                            <option key={c.id} value={c.id} className="bg-slate-900">
-                              {c.name} {c.vault_type === 'emergency' ? '(Resgate)' : '(Resgate)'}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label={t.dashboard.transactions.filters.expense} className="bg-slate-900">
-                          {categories.filter(c => c.type === 'expense' && c.vault_type === 'none').map((c) => (
-                            <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="Investimentos e Poupança" className="bg-slate-900">
-                          {categories.filter(c => c.type === 'expense' && c.vault_type !== 'none').map((c) => (
-                            <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
-                          ))}
-                        </optgroup>
+                        <option value="">
+                          {formData.transaction_type
+                            ? t.dashboard.transactions.selectCategory
+                            : (t.dashboard.transactions.selectTypeFirst ?? 'Seleciona primeiro o tipo acima')}
+                        </option>
+                        {formData.transaction_type === 'income' && (
+                          <>
+                            {categoriesByType.filter(c => c.type === 'income').map((c) => (
+                              <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                            ))}
+                            {categoriesByType.filter(c => c.type === 'expense' && c.vault_type !== 'none').map((c) => (
+                              <option key={c.id} value={c.id} className="bg-slate-900">
+                                {c.name} (Resgate)
+                              </option>
+                            ))}
+                          </>
+                        )}
+                        {formData.transaction_type === 'expense' && (
+                          <>
+                            {categoriesByType.filter(c => c.vault_type === 'none').map((c) => (
+                              <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                            ))}
+                            {categoriesByType.filter(c => c.vault_type !== 'none').length > 0 && (
+                              <optgroup label={t.dashboard.transactions.investmentsAndSavings} className="bg-slate-900">
+                                {categoriesByType.filter(c => c.vault_type !== 'none').map((c) => (
+                                  <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </>
+                        )}
                       </select>
-                      <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                      <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                     </div>
                     {/* Mostrar tipo da categoria selecionada para confirmação */}
                     {formData.category_id && (
@@ -728,16 +1044,15 @@ function TransactionsPageContent() {
                           {(() => {
                             const selectedCat = categories.find(c => c.id === formData.category_id);
                             if (selectedCat) {
-                              const isVaultInReceitas = selectedCat.vault_type !== 'none' && 
-                                document.querySelector('optgroup[label="Receitas"]')?.querySelector(`option[value="${formData.category_id}"]`);
+                              const isIncomeOrResgate = selectedCat.type === 'income' || selectedCat.vault_type !== 'none';
                               
                               return (
                                 <>
-                                  <span className="text-slate-500">Tipo:</span>
+                                  <span className="text-slate-500">{t.dashboard.transactions.typeLabel}</span>
                                   <span className={`font-black uppercase tracking-widest ${
-                                    selectedCat.type === 'income' || isVaultInReceitas ? 'text-emerald-400' : 'text-red-400'
+                                    isIncomeOrResgate ? 'text-emerald-400' : 'text-red-400'
                                   }`}>
-                                    {selectedCat.type === 'income' || isVaultInReceitas ? t.dashboard.categories.income : t.dashboard.categories.expense}
+                                    {isIncomeOrResgate ? t.dashboard.categories.income : t.dashboard.categories.expense}
                                   </span>
                                   {selectedCat.vault_type !== 'none' && (
                                     <>
@@ -756,10 +1071,6 @@ function TransactionsPageContent() {
                         {(() => {
                           const selectedCat = categories.find(c => c.id === formData.category_id);
                           if (selectedCat && selectedCat.vault_type === 'emergency') {
-                            // Verificar se está no grupo "Receitas" (resgate)
-                            const selectElement = document.querySelector('select[value="' + formData.category_id + '"]') as HTMLSelectElement;
-                            const isInReceitasGroup = selectElement?.querySelector('optgroup[label="Receitas"] option[value="' + formData.category_id + '"]');
-                            
                             return (
                               <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-blue-400 text-[10px] font-medium">
                                 💡 <strong>{t.dashboard.transactions.vaultTip}</strong> {t.dashboard.transactions.vaultTipText}
@@ -774,7 +1085,7 @@ function TransactionsPageContent() {
 
                   <button
                     type="submit"
-                    className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-3xl font-black uppercase tracking-[0.2em] text-xs transition-all shadow-2xl shadow-blue-600/30 active:scale-[0.98] cursor-pointer"
+                    className="w-full py-3 sm:py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm uppercase tracking-wider transition-colors cursor-pointer"
                   >
                     {editingTransaction ? t.dashboard.transactions.saveChanges : t.dashboard.transactions.registerTransaction}
                   </button>
@@ -794,135 +1105,113 @@ function TransactionsPageContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedTransaction(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-[40px] p-8 shadow-2xl overflow-hidden"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              className="relative w-full max-w-sm bg-slate-900/95 backdrop-blur-md border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden"
             >
-              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[80px] rounded-full -z-10" />
-              
-              <div className="flex flex-col items-center text-center gap-6">
-                <div className={`w-16 h-16 rounded-3xl flex items-center justify-center ${
-                  categories.find(c => c.id === selectedTransaction.category_id)?.type === 'income' 
-                  ? 'bg-emerald-500/10 text-emerald-500' 
-                  : 'bg-blue-500/10 text-blue-500'
-                }`}>
-                  <CreditCard size={32} />
-                </div>
-                
-                <div>
-                  <h2 className="text-2xl font-black text-white tracking-tighter mb-1">
-                    {selectedTransaction.description}
-                  </h2>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    {t.dashboard.transactions.table.description}
-                  </p>
-                </div>
+              {(() => {
+                const cat = categories.find(c => c.id === selectedTransaction.category_id);
+                const isIncome = cat && cat.vault_type !== 'none'
+                  ? selectedTransaction.amount_cents > 0
+                  : (cat ? cat.type === 'income' : selectedTransaction.amount_cents > 0);
+                return (
+                  <>
+                    {/* Colored top strip */}
+                    <div className={`h-1 w-full ${isIncome ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                    
+                    <div className="p-5">
+                      {/* Close button */}
+                      <button onClick={() => setSelectedTransaction(null)} className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800/50 transition-colors cursor-pointer">
+                        <X size={16} />
+                      </button>
 
-                <div className="w-full bg-white/5 border border-white/5 rounded-3xl p-6 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.value}</span>
-                    <span className={`text-xl font-black ${
-                      categories.find(c => c.id === selectedTransaction.category_id)?.type === 'income' 
-                      ? 'text-emerald-400' 
-                      : 'text-white'
-                    }`}>
-                      {formatCurrency(Math.abs(selectedTransaction.amount_cents) / 100)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.date}</span>
-                    <span className="text-sm font-bold text-white">
-                      {new Date(selectedTransaction.transaction_date).toLocaleDateString('pt-PT')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.transactions.category}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: categories.find(c => c.id === selectedTransaction.category_id)?.color_hex || '#3b82f6' }} />
-                      <span className="text-sm font-bold text-white">
-                        {categories.find(c => c.id === selectedTransaction.category_id)?.name || t.dashboard.transactions.noCategory}
-                      </span>
+                      {/* Header */}
+                      <div className="flex items-center gap-3 mb-5">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${isIncome ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                          {isIncome ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h2 className="text-base font-bold text-white truncate">{selectedTransaction.description}</h2>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{t.dashboard.transactions.table.description}</p>
+                        </div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="space-y-3 bg-slate-950/50 border border-slate-700/30 rounded-xl p-4 mb-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.value}</span>
+                          <span className={`text-lg font-black tabular-nums ${isIncome ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {isIncome ? '+' : '-'}{formatCurrency(Math.abs(selectedTransaction.amount_cents) / 100)}
+                          </span>
+                        </div>
+                        <div className="h-px bg-slate-700/30" />
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.date}</span>
+                          <span className="text-sm font-bold text-white">{new Date(selectedTransaction.transaction_date).toLocaleDateString('pt-PT')}</span>
+                        </div>
+                        <div className="h-px bg-slate-700/30" />
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.transactions.category}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat?.color_hex || '#3b82f6' }} />
+                            <span className="text-sm font-bold text-white">{cat?.name || t.dashboard.transactions.noCategory}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleEdit(selectedTransaction)}
+                          className="px-4 py-3 bg-slate-800/60 border border-slate-700/50 text-white rounded-xl font-bold uppercase tracking-wider text-[10px] hover:bg-slate-700/60 transition-all cursor-pointer flex items-center justify-center gap-2"
+                        >
+                          <Edit2 size={13} /> {t.dashboard.transactions.editButton}
+                        </button>
+                        <button
+                          onClick={() => setTransactionToDelete(selectedTransaction.id)}
+                          className="px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl font-bold uppercase tracking-wider text-[10px] hover:bg-red-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                        >
+                          <Trash2 size={13} /> {t.dashboard.transactions.deleteButton}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </div>
-
-                <div className="w-full grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => handleEdit(selectedTransaction)}
-                    className="px-6 py-4 bg-white/5 border border-slate-800 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <Edit2 size={14} /> {t.dashboard.transactions.editButton}
-                  </button>
-                  <button
-                    onClick={() => setTransactionToDelete(selectedTransaction.id)}
-                    className="px-6 py-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-red-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <Trash2 size={14} /> {t.dashboard.transactions.deleteButton}
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => setSelectedTransaction(null)}
-                  className="text-[10px] font-black uppercase tracking-widest text-slate-600 hover:text-white transition-colors"
-                >
-                  Fechar Detalhes
-                </button>
-              </div>
+                  </>
+                );
+              })()}
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* Confirm Delete Modal */}
-      <AnimatePresence>
-        {transactionToDelete && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setTransactionToDelete(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-[40px] p-8 shadow-2xl overflow-hidden text-center"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/10 blur-[40px] rounded-full -z-10" />
-              
-              <div className="w-16 h-16 bg-red-500/10 rounded-3xl flex items-center justify-center text-red-500 mx-auto mb-6">
-                <Trash2 size={32} />
-              </div>
-              
-              <h3 className="text-2xl font-black text-white tracking-tighter mb-2">{t.dashboard.transactions.deleteConfirm}</h3>
-              <p className="text-slate-500 text-sm font-medium italic mb-8">
-                {t.dashboard.transactions.deleteConfirmText}
-              </p>
+      {/* Confirm Delete Modal (single) */}
+      <ConfirmModal
+        isOpen={!!transactionToDelete}
+        onClose={() => { if (!isDeleting) setTransactionToDelete(null); }}
+        onConfirm={handleDelete}
+        title={t.dashboard.transactions.deleteConfirm}
+        message={t.dashboard.transactions.deleteConfirmText}
+        confirmText={t.dashboard.transactions.delete}
+        cancelText={t.dashboard.analytics.cancel}
+        variant="danger"
+        isLoading={isDeleting}
+      />
 
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setTransactionToDelete(null)}
-                  className="px-6 py-4 border border-slate-800 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/5 transition-all cursor-pointer"
-                >
-                  {t.dashboard.analytics.cancel}
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="px-6 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-red-600/20 transition-all cursor-pointer"
-                >
-                  {t.dashboard.transactions.delete}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Confirm Bulk Delete Modal */}
+      <ConfirmModal
+        isOpen={bulkDeleteConfirm}
+        onClose={() => { if (!isDeleting) setBulkDeleteConfirm(false); }}
+        onConfirm={handleBulkDelete}
+        title={(t.dashboard.transactions as any).bulkDeleteConfirm ?? 'Eliminar várias transações?'}
+        message={`${(t.dashboard.transactions as any).bulkDeleteConfirmText ?? 'Vais eliminar'} ${selectedIds.size} ${(t.dashboard.transactions as any).bulkDeleteConfirmSuffix ?? 'transações. Esta ação não pode ser desfeita.'}`}
+        confirmText={`${(t.dashboard.transactions as any).bulkDeleteButton ?? 'Eliminar'} (${selectedIds.size})`}
+        cancelText={t.dashboard.analytics.cancel}
+        variant="danger"
+        isLoading={isDeleting}
+      />
 
       <Toast 
         message={toastInfo.message}

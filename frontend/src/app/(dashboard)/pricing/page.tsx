@@ -1,21 +1,91 @@
 'use client';
 
-import { useState } from 'react';
-import api from '@/lib/api';
-import { 
-  Check, Star, Zap, Crown, ShieldCheck, 
-  ArrowRight, Sparkles, Trophy, CreditCard
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { mutate } from 'swr';
+import { motion } from 'framer-motion';
+import { Check, Zap, Crown, Trophy } from 'lucide-react';
 import { useTranslation } from '@/lib/LanguageContext';
+import { useUser } from '@/lib/UserContext';
+import api from '@/lib/api';
 import Toast from '@/components/Toast';
+import { STRIPE_PRICE_IDS } from '@/lib/stripePrices';
 
 export default function PricingPage() {
-  const { t, formatCurrency } = useTranslation();
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
+  const { t } = useTranslation();
+  const { isPro, refreshUser } = useUser();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState<string | null>(null);
-  const [showToast, setShowToast] = useState(false);
-  const [toastMsg, setToastMsg] = useState('');
+  const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' as 'success' | 'error' });
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+
+  // Verificar se há mensagem de sucesso após refresh
+  useEffect(() => {
+    const successActivated = sessionStorage.getItem('pro_activated_success');
+    if (successActivated === 'true') {
+      sessionStorage.removeItem('pro_activated_success');
+      setToast({
+        isVisible: true,
+        message: t.dashboard.pricing.proActivated,
+        type: 'success'
+      });
+    }
+  }, []);
+
+  // Verificar se voltou do Stripe com session_id
+  useEffect(() => {
+    const sessionId = searchParams?.get('session_id');
+    if (sessionId) {
+      setIsProcessingPayment(true);
+      
+      const verifyAndActivate = async (retryCount = 0) => {
+        try {
+          const verifyRes = await api.get(`/stripe/verify-session/${sessionId}`);
+          
+          if (verifyRes.data.success && verifyRes.data.is_active) {
+            // Invalidar cache do SWR para forçar refresh
+            await mutate('/auth/me');
+            await mutate('/stripe/invoices');
+            
+            // Atualizar contexto do usuário
+            await refreshUser();
+            
+            // Guardar mensagem de sucesso no sessionStorage para mostrar após refresh
+            sessionStorage.setItem('pro_activated_success', 'true');
+            
+            // Limpar URL e redirecionar para dashboard (que vai recarregar com dados atualizados)
+            window.history.replaceState({}, '', '/dashboard');
+            window.location.reload();
+          } else if (retryCount < 5) {
+            setTimeout(() => verifyAndActivate(retryCount + 1), 1500);
+          } else {
+            setIsProcessingPayment(false);
+            setToast({
+              isVisible: true,
+              message: t.dashboard.pricing.paymentProcessing,
+              type: 'success'
+            });
+            window.history.replaceState({}, '', '/pricing');
+          }
+        } catch (err: any) {
+          if (retryCount < 5 && err.response?.status !== 403) {
+            setTimeout(() => verifyAndActivate(retryCount + 1), 1500);
+          } else {
+            setIsProcessingPayment(false);
+            setToast({
+              isVisible: true,
+              message: t.dashboard.pricing.paymentVerifyError,
+              type: 'error'
+            });
+            window.history.replaceState({}, '', '/pricing');
+          }
+        }
+      };
+      
+      setTimeout(() => verifyAndActivate(), 2000);
+    }
+  }, [searchParams, refreshUser, router]);
 
   const handleSubscribe = async (priceId: string) => {
     try {
@@ -24,9 +94,13 @@ export default function PricingPage() {
         params: { price_id: priceId }
       });
       window.location.href = res.data.url;
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert(t.dashboard.pricing.monthlyPlan.error);
+      setToast({
+        isVisible: true,
+        message: err?.response?.data?.detail || t.dashboard.pricing.paymentError,
+        type: 'error'
+      });
     } finally {
       setLoading(null);
     }
@@ -34,198 +108,266 @@ export default function PricingPage() {
 
   const plans = [
     {
-      id: 'monthly',
-      name: t.dashboard.pricing.monthlyPlan.name,
-      price: 9.99,
-      priceId: 'price_1SrkUWLtWlVpaXrb8zFq6OvW',
-      description: t.dashboard.pricing.monthlyPlan.description,
-      features: t.dashboard.pricing.monthlyPlan.features,
+      id: 'basic',
+      name: 'FinLy Basic',
+      tagline: 'Começa hoje. Sem complicações.',
+      price: '9,99€',
+      priceSuffix: '/ mês',
+      priceSecondary: null,
+      quote: 'Quero organizar o meu dinheiro antes de pensar em ganhar com isso.',
+      features: ['Registo simples de todos os gastos', 'Categorias automáticas', 'Visão clara do teu mês financeiro', 'Relatórios mensais'],
+      limitation: 'Programa de afiliados bloqueado nos primeiros 3 meses',
+      buttonText: 'Começar agora',
+      priceId: STRIPE_PRICE_IDS.basic,
       icon: Zap,
-      color: 'blue'
+      popular: false,
     },
     {
-      id: 'yearly',
-      name: t.dashboard.pricing.yearlyPlan.name,
-      price: 89.90, // ~7.49/mês
-      priceId: 'price_1SrkUrLtWlVpaXrb8zFq6OvW',
-      description: t.dashboard.pricing.yearlyPlan.description,
-      features: t.dashboard.pricing.yearlyPlan.features,
-      icon: Crown,
+      id: 'plus',
+      name: 'FinLy Plus',
+      tagline: 'O plano de quem pensa mais à frente',
+      price: '49,99€',
+      priceSuffix: '/ 6 meses',
+      priceSecondary: '≈ 8,33€ / mês',
+      quote: 'Já uso a FinLy e quero que ela comece a trabalhar para mim.',
+      features: ['Tudo do FinLy Basic', 'Acesso imediato ao programa de afiliados', '20% de comissão recorrente', 'Dashboard de ganhos em tempo real', 'Link exclusivo para indicações'],
+      limitation: null,
+      buttonText: 'Quero começar a ganhar com a FinLy',
+      priceId: STRIPE_PRICE_IDS.plus,
+      icon: Trophy,
       popular: true,
-      color: 'indigo'
+      popularLabel: '🔥 MAIS ESCOLHIDO',
+    },
+    {
+      id: 'pro',
+      name: 'FinLy Pro',
+      tagline: 'Para quem quer pagar menos, ganhar mais e ficar à frente',
+      price: '89,99€',
+      priceSuffix: '/ ano',
+      priceSecondary: '≈ 7,49€ / mês',
+      quote: 'Quero tudo. O menor preço e o maior retorno.',
+      features: ['Tudo do FinLy Plus', '25% de comissão recorrente (mais ganhos por indicação)', 'Relatório anual inteligente', 'Insights automáticos de gastos e padrões', 'Acesso antecipado a novas funcionalidades'],
+      limitation: null,
+      buttonText: 'Quero o plano mais completo',
+      priceId: STRIPE_PRICE_IDS.pro,
+      icon: Crown,
+      popular: false,
     }
   ];
 
+  // Verificar se há parâmetro plan na URL e iniciar checkout automaticamente
+  useEffect(() => {
+    const planParam = searchParams?.get('plan');
+    if (planParam && !loading && !isProcessingPayment && !isPro) {
+      const selectedPlan = plans.find(p => p.id === planParam);
+      if (selectedPlan) {
+        // Pequeno delay para garantir que a página carregou completamente
+        const timer = setTimeout(() => {
+          handleSubscribe(selectedPlan.priceId);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isPro, loading, isProcessingPayment]);
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="py-12 px-4 md:px-0"
-    >
-      {/* Header Section */}
-      <div className="text-center mb-16 relative">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-blue-600/10 blur-[100px] -z-10" />
-        
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-[0.2em] mb-6"
+    <div className="space-y-20 pb-20 px-4 md:px-8 pt-10 max-w-7xl mx-auto">
+      {/* Header Section — igual à plans */}
+      <section className="text-center mb-20 md:mb-28 lg:mb-32">
+        <motion.h2
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-4xl md:text-6xl font-black tracking-tighter mb-6 uppercase"
         >
-          <Sparkles size={14} />
-          Investimento na tua Liberdade
-        </motion.div>
-        
-        <h1 className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-6 leading-none">
-          Escolhe o teu <span className="text-blue-500">Ritmo de Sucesso</span>
-        </h1>
-        <p className="text-slate-400 text-lg font-medium max-w-2xl mx-auto italic">
-          "O preço é o que pagas, o valor é o que recebes." Começa hoje a tua jornada para a paz financeira plena.
-        </p>
+          Quanto vale ter{' '}
+          <span className="text-blue-500 italic block md:inline">controlo total do teu dinheiro</span>?
+        </motion.h2>
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="text-lg md:text-xl lg:text-2xl text-slate-400 mb-6 md:mb-8 max-w-2xl mx-auto"
+        >
+          A maioria das pessoas não sabe para onde o dinheiro vai.
+        </motion.p>
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="text-lg md:text-xl lg:text-2xl text-white font-semibold mb-8 md:mb-10 max-w-2xl mx-auto"
+        >
+          Quem usa a FinLy sabe. E alguns ainda ganham com isso.
+        </motion.p>
+      </section>
 
-        {/* Billing Toggle */}
-        <div className="mt-12 flex items-center justify-center gap-6">
-          <span className={`text-sm font-black uppercase tracking-widest transition-colors ${billingCycle === 'monthly' ? 'text-white' : 'text-slate-500'}`}>Mensal</span>
-          <button 
-            onClick={() => setBillingCycle(billingCycle === 'monthly' ? 'yearly' : 'monthly')}
-            className="w-16 h-8 bg-slate-800 rounded-full relative p-1 transition-all hover:bg-slate-700"
-          >
-            <motion.div 
-              animate={{ x: billingCycle === 'monthly' ? 0 : 32 }}
-              className="w-6 h-6 bg-blue-500 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]"
-            />
-          </button>
-          <div className="flex items-center gap-3">
-            <span className={`text-sm font-black uppercase tracking-widest transition-colors ${billingCycle === 'yearly' ? 'text-white' : 'text-slate-500'}`}>Anual</span>
-            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest animate-pulse">
-              -25% OFF
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Plans Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-        {plans.map((plan, index) => (
-          <motion.div
-            key={plan.id}
-            initial={{ opacity: 0, x: index === 0 ? -20 : 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 }}
-            className={`relative group h-full`}
-          >
-            {/* Background Glow */}
-            <div className={`absolute inset-0 bg-gradient-to-b ${plan.popular ? 'from-blue-600/10 to-indigo-600/10' : 'from-slate-800/20 to-transparent'} rounded-[48px] blur-2xl transition-all group-hover:blur-3xl`} />
-            
-            <div className={`relative h-full bg-[#0f172a]/80 backdrop-blur-xl border ${plan.popular ? 'border-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.1)]' : 'border-slate-800'} rounded-[48px] p-8 md:p-12 flex flex-col transition-all duration-500 hover:-translate-y-2`}>
-              
-              {plan.popular && (
-                <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] shadow-xl flex items-center gap-2">
-                  <Trophy size={14} />
-                  Melhor Valor
+      {/* Plans Grid — cards iguais à plans */}
+      <section>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 items-stretch">
+          {plans.map((plan: any, index: number) => (
+            <motion.div
+              key={plan.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              className={`relative rounded-3xl p-8 md:p-9 overflow-visible group transition-all duration-300 flex flex-col ${
+                plan.popular
+                  ? 'bg-slate-800/95 border-2 border-blue-500/50 shadow-[0_0_60px_rgba(59,130,246,0.15)] hover:border-blue-500/70'
+                  : 'bg-slate-800/80 border border-slate-600/50 hover:border-slate-500/60 hover:bg-slate-800/90'
+              } backdrop-blur-sm`}
+            >
+              {plan.popular && plan.popularLabel && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 text-white px-6 py-2.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] shadow-lg flex items-center gap-2 z-30 whitespace-nowrap">
+                  <Trophy size={16} className="animate-pulse" />
+                  <span>{plan.popularLabel}</span>
                 </div>
               )}
 
-              <div className="flex justify-between items-start mb-8">
-                <div>
-                  <h2 className="text-2xl font-black text-white tracking-tighter uppercase mb-2">{plan.name}</h2>
-                  <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-[200px]">
-                    {plan.description}
-                  </p>
-                </div>
-                <div className={`w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center ${plan.popular ? 'text-blue-400' : 'text-slate-500'}`}>
-                  <plan.icon size={28} />
-                </div>
-              </div>
-
-              <div className="mb-10">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-black text-white tracking-tighter">
-                    {billingCycle === 'yearly' && plan.id === 'yearly' 
-                      ? formatCurrency(plan.price) 
-                      : formatCurrency(plan.id === 'yearly' ? 9.99 : plan.price)}
-                  </span>
-                  <span className="text-slate-500 font-black uppercase tracking-widest text-[10px]">
-                    / {billingCycle === 'monthly' ? 'Mês' : 'Ano'}
-                  </span>
-                </div>
-                {billingCycle === 'yearly' && plan.id === 'yearly' && (
-                  <motion.p 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="text-emerald-400 text-[11px] font-black uppercase tracking-widest mt-2 flex items-center gap-2"
-                  >
-                    <ShieldCheck size={14} />
-                    Equivale a {formatCurrency(plan.price / 12)}/mês
-                  </motion.p>
-                )}
-                {billingCycle === 'monthly' && plan.id === 'yearly' && (
-                  <p className="text-slate-500 text-[11px] font-black uppercase tracking-widest mt-2">
-                    Economiza {formatCurrency((9.99 * 12) - 89.90)} por ano no Anual
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-5 mb-12 flex-grow">
-                {plan.features.map((feature: string, fIndex: number) => (
-                  <div key={fIndex} className="flex items-start gap-4 group/item">
-                    <div className={`mt-1 p-0.5 rounded-full ${plan.popular ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`}>
-                      <Check size={14} strokeWidth={4} />
+              <div className="relative z-10 flex flex-col flex-1 min-h-0">
+                <div className="flex-1 flex flex-col">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${
+                      plan.popular
+                        ? 'bg-blue-500/20 border-2 border-blue-500/40'
+                        : 'bg-slate-700/80 border border-slate-600/50'
+                    }`}>
+                      <plan.icon size={32} style={{ color: plan.popular ? '#60a5fa' : '#94a3b8' }} />
                     </div>
-                    <span className="text-slate-300 text-sm font-medium group-hover/item:text-white transition-colors">
-                      {feature}
-                    </span>
+                    <div className="text-right">
+                      <p className="text-sm font-black uppercase tracking-widest text-slate-400 mb-1">{plan.name}</p>
+                      <p className="text-4xl md:text-5xl font-black text-white tracking-tighter leading-none">
+                        {plan.price}
+                      </p>
+                      <p className="text-sm text-slate-400 font-semibold mt-0.5">{plan.priceSuffix}</p>
+                      {plan.priceSecondary && (
+                        <p className="text-base text-emerald-400 font-semibold mt-1.5">{plan.priceSecondary}</p>
+                      )}
+                    </div>
                   </div>
-                ))}
+
+                  <p className="text-base md:text-lg text-slate-400 mb-2 font-medium">{plan.tagline}</p>
+                  <p className="text-base text-slate-500 mb-6 italic">&quot;{plan.quote}&quot;</p>
+
+                  <div className="space-y-3 mb-6">
+                    {plan.features.map((feature: string, fIndex: number) => (
+                      <div key={fIndex} className="flex items-start gap-3">
+                        <Check size={22} className="text-emerald-400 mt-0.5 shrink-0" />
+                        <p className="text-base md:text-lg text-slate-200 font-medium">{feature}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {plan.limitation && (
+                    <p className="text-base text-amber-400/90 mb-6 font-medium">🚫 {plan.limitation}</p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleSubscribe(plan.priceId)}
+                  disabled={loading !== null || isPro}
+                  className={`mt-auto w-full flex items-center justify-center gap-2 px-6 py-4 rounded-2xl text-base font-black uppercase tracking-[0.2em] transition-all cursor-pointer ${
+                    isPro
+                      ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 cursor-not-allowed'
+                      : plan.popular
+                      ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25'
+                      : 'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600'
+                  }`}
+                >
+                  {loading === plan.priceId ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : isPro ? (
+                    'Já és Pro'
+                  ) : (
+                    plan.buttonText
+                  )}
+                </button>
               </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
 
-              <button
-                disabled={loading !== null}
-                onClick={() => handleSubscribe(plan.priceId)}
-                className={`w-full py-5 rounded-[24px] font-black uppercase tracking-[0.2em] text-[10px] transition-all flex items-center justify-center gap-3 cursor-pointer ${
-                  plan.popular 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-500 active:scale-95' 
-                    : 'bg-white/5 text-slate-300 border border-slate-800 hover:bg-white/10 active:scale-95'
-                }`}
-              >
-                {loading === plan.priceId ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <>
-                    Ativar Agora
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </div>
-          </motion.div>
-        ))}
+      {/* Linha separadora */}
+      <div className="max-w-3xl mx-auto" aria-hidden="true">
+        <hr className="border-t border-white/10" />
       </div>
 
-      {/* Trust Badges */}
-      <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
-        {[
-          { icon: ShieldCheck, title: 'Segurança Bancária', desc: 'Dados encriptados com tecnologia militar.' },
-          { icon: CreditCard, title: 'Cancelamento Fácil', desc: 'Cancela quando quiseres, sem perguntas.' },
-          { icon: Trophy, title: 'Garantia Zen', desc: 'Satisfeito ou o teu dinheiro de volta em 7 dias.' }
-        ].map((item, i) => (
-          <div key={i} className="flex flex-col items-center text-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-blue-500">
-              <item.icon size={24} />
-            </div>
-            <div>
-              <h4 className="text-sm font-black text-white uppercase tracking-widest mb-1">{item.title}</h4>
-              <p className="text-slate-500 text-xs font-medium leading-relaxed">{item.desc}</p>
-            </div>
+      {/* Programa de Afiliados FinLy */}
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-3xl mx-auto text-center mt-16 mb-16"
+      >
+        <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-base font-black uppercase tracking-[0.2em] mb-8">
+          {(t as any).pricingSection?.affiliate?.badge}
+        </div>
+        <h3 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight mb-6 leading-tight">
+          {(t as any).pricingSection?.affiliate?.title}
+        </h3>
+        <p className="text-slate-400 text-lg md:text-xl mb-10">
+          {(t as any).pricingSection?.affiliate?.description}
+        </p>
+        <ul className="flex flex-col items-center text-slate-200 text-lg md:text-xl space-y-4 mb-12 font-medium">
+          {((t as any).pricingSection?.affiliate?.benefits || []).map((benefit: string, idx: number) => (
+            <li key={idx} className="flex items-center justify-center gap-3">{benefit}</li>
+          ))}
+        </ul>
+        <div className="bg-slate-800/90 border border-slate-600/60 rounded-3xl p-6 md:p-8 shadow-xl">
+          <p className="text-sm font-black uppercase tracking-widest text-slate-400 mb-4">{(t as any).pricingSection?.affiliate?.example?.title}</p>
+          <p className="text-lg md:text-xl text-slate-200 font-medium mb-1">{(t as any).pricingSection?.affiliate?.example?.line1}</p>
+          <p className="text-lg md:text-xl text-slate-200 font-medium mb-5">{(t as any).pricingSection?.affiliate?.example?.line2}</p>
+          <p className="text-base text-slate-500">{(t as any).pricingSection?.affiliate?.example?.footer}</p>
+        </div>
+      </motion.section>
+
+      {/* Sem risco, sem letras pequenas */}
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="pt-16 border-t border-white/5"
+      >
+        <div className="text-center mb-8">
+          <span className="inline-flex items-center gap-2 text-slate-500 text-sm font-black uppercase tracking-[0.2em]">
+            Sem risco, sem letras pequenas
+          </span>
+        </div>
+        <div className="flex flex-wrap justify-center gap-6 sm:gap-12">
+          <div className="flex items-center gap-3 text-slate-400 text-base">
+            <Check size={20} className="text-emerald-400 shrink-0" />
+            Pagamento seguro
           </div>
-        ))}
-      </div>
+          <div className="flex items-center gap-3 text-slate-400 text-base">
+            <Check size={20} className="text-emerald-400 shrink-0" />
+            Cancela quando quiseres
+          </div>
+          <div className="flex items-center gap-3 text-slate-400 text-base">
+            <Check size={20} className="text-emerald-400 shrink-0" />
+            Sem fidelização forçada
+          </div>
+        </div>
+      </motion.section>
+
+      {isProcessingPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-blue-500/20 rounded-2xl p-8 text-center max-w-md mx-4"
+          >
+            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <h3 className="text-xl font-black text-white mb-2">A processar pagamento...</h3>
+            <p className="text-slate-400 text-sm">Aguarda enquanto verificamos a tua subscrição</p>
+          </motion.div>
+        </div>
+      )}
 
       <Toast 
-        message={toastMsg} 
-        onClose={() => setShowToast(false)} 
-        type={toastMsg.includes('Erro') ? 'error' : 'success'} 
-        isVisible={showToast}
+        message={toast.message} 
+        onClose={() => setToast({ ...toast, isVisible: false })} 
+        type={toast.type} 
+        isVisible={toast.isVisible}
       />
-    </motion.div>
+    </div>
   );
 }

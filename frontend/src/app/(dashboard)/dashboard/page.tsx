@@ -1,35 +1,29 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import api, { fetcher } from '@/lib/api';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { useDashboardSnapshot } from '@/lib/hooks/useDashboard';
-// Lazy loading de charts para reduzir bundle inicial
-import { 
-  LazyBarChart, LazyBar, LazyAreaChart, LazyArea,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine
-} from '@/components/charts/LazyCharts';
-import { ArrowUpCircle, ArrowDownCircle, Wallet, Info, Lock, ArrowRight, ChevronRight, AlertCircle, Zap, Target } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Wallet, ChevronRight, AlertCircle, Zap, Target, Loader2, ShieldCheck, Sparkles, TrendingUp, TrendingDown, Plus, Calendar, ChevronLeft, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts';
 import { useTranslation } from '@/lib/LanguageContext';
-import ZenInsights from '@/components/ZenInsights';
 import PricingModal from '@/components/PricingModal';
+import TransactionAddModal from '@/components/TransactionAddModal';
 import { DEMO_TRANSACTIONS, DEMO_CATEGORIES } from '@/lib/mockData';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import Toast from '@/components/Toast';
-import confetti from 'canvas-confetti';
-import { Crown, Star, Check, Sparkles as SparklesIcon, Zap as ZapIcon, ArrowRightCircle, X, Loader2 } from 'lucide-react';
+// canvas-confetti carregado dinamicamente (só quando necessário -- raro)
 import { useUser } from '@/lib/UserContext';
-import { DashboardSkeleton } from '@/components/LoadingSkeleton';
 import LoadingScreen from '@/components/LoadingScreen';
+import { hasProAccess } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { t, formatCurrency } = useTranslation();
   const { refreshUser } = useUser();
   const searchParams = useSearchParams();
   const [isPro, setIsPro] = useState(false);
-  const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
   const [isProcessingUpgrade, setIsProcessingUpgrade] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' as 'success' | 'error' });
@@ -38,18 +32,57 @@ export default function DashboardPage() {
     expenses: 0,
     balance: 0,
     vault: 0,
-    totalLimits: 0,
     dailyAllowance: 0,
-    efficiencyScore: 0
+    remainingMoney: 0,
+    totalBudget: 0,
+    vaultEmergency: 0,
+    vaultInvestment: 0
   });
-  const [chartData, setChartData] = useState([]);
-  const [trendData, setTrendData] = useState([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [hasLowData, setHasLowData] = useState(false);
+  const [viewMonth, setViewMonth] = useState<{ year: number; month: number }>(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  const [showAddTransactionModal, setShowAddTransactionModal] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   
-  // Usar SWR para cache inteligente e deduplicação
-  const { snapshot, collections, isLoading: snapshotLoading, mutate: mutateSnapshot } = useDashboardSnapshot();
+  // Detectar se é mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024); // lg breakpoint
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+  
+  // Guardar último valor válido das percentagens para evitar que desapareçam quando dados recalculam
+  const lastValidPercentages = useRef<{ vsIncome: any; vsExpenses: any; vsBalance: any } | null>(null);
+
+  // Usar SWR para cache inteligente; viewMonth filtra snapshot por mês (backend month 1-12)
+  const { snapshot, collections, isLoading: snapshotLoading, mutate: mutateSnapshot } = useDashboardSnapshot(
+    viewMonth.year,
+    viewMonth.month + 1
+  );
+  
+  // Buscar snapshot do mês anterior para comparação
+  const prevMonth = useMemo(() => {
+    if (viewMonth.month === 0) {
+      // Se estamos em janeiro (month 0), mês anterior é dezembro do ano anterior
+      return { year: viewMonth.year - 1, month: 12 };
+    }
+    // Caso contrário, mês anterior é o mês atual - 1
+    // viewMonth.month é 0-11, então mês anterior é viewMonth.month - 1 (ainda em formato 0-11)
+    const prevMonthIndex = viewMonth.month - 1; // 0-11
+    return { year: viewMonth.year, month: prevMonthIndex };
+  }, [viewMonth]);
+  
+  const { snapshot: prevSnapshot } = useDashboardSnapshot(
+    prevMonth.year,
+    prevMonth.month === 12 ? 12 : prevMonth.month + 1 // Converter de 0-11 para 1-12, exceto dezembro que já é 12
+  );
   
   // Buscar invoices separadamente (não está no snapshot)
   const { data: invoicesData } = useSWR('/stripe/invoices', fetcher, {
@@ -58,29 +91,59 @@ export default function DashboardPage() {
   });
   
   // Buscar user profile para subscription status
-  const { data: userData } = useSWR('/auth/me', fetcher, {
+  const { data: userData, mutate: mutateUserData } = useSWR('/auth/me', fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60000,
+  });
+
+  // Dados para gráficos (Evolução 6 meses + Despesas por categoria) e "vs. mês anterior"
+  const hasActiveSub = useMemo(() => hasProAccess(userData), [userData]);
+  const { data: compositeData } = useSWR(hasActiveSub ? '/insights/composite' : null, fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
   });
   
-  // Memoizar cálculos pesados
-  const hasActiveSub = useMemo(() => {
-    return userData ? ['active', 'trialing', 'cancel_at_period_end'].includes(userData.subscription_status) : false;
-  }, [userData]);
+  // Ao carregar o dashboard, forçar recarga de dados (snapshot, user, invoices)
+  useEffect(() => {
+    mutateSnapshot();
+    mutateUserData();
+    mutate('/stripe/invoices');
+  }, [mutateSnapshot, mutateUserData]);
+
+  // Verificar se voltou do pagamento: aguardar refresh de user/snapshot antes de limpar, para o modo Pro aparecer sem F5
+  useEffect(() => {
+    const sessionId = searchParams?.get('session_id');
+    const proActivated = sessionStorage.getItem('pro_activated_success');
+    
+    if (proActivated === 'true') {
+      (async () => {
+        await refreshUser();
+        await mutateUserData();
+        await mutate('/stripe/invoices');
+        await mutateSnapshot();
+        sessionStorage.removeItem('pro_activated_success');
+      })();
+    }
+    if (sessionId) {
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  }, [searchParams, refreshUser, mutateUserData, mutateSnapshot]);
   
-  const shouldShowPaywall = useMemo(() => {
-    return !hasActiveSub && !searchParams.get('session_id');
-  }, [hasActiveSub, searchParams]);
+  // Memoizar cálculos pesados (hasActiveSub já definido acima para composite)
+  
+  // Paywall removido - não mostrar automaticamente para contas free
+  // const shouldShowPaywall = useMemo(() => {
+  //   return !hasActiveSub && !searchParams.get('session_id');
+  // }, [hasActiveSub, searchParams]);
 
   const fetchData = useCallback(async () => {
+      // Se snapshot ainda está a carregar ou faltam dados, não fazer nada (evita loading preso)
+      if (snapshotLoading || !snapshot || !collections) {
+        return;
+      }
       try {
-        setLoading(true);
-        
-        // Se snapshot ainda está a carregar, esperar
-        if (snapshotLoading || !snapshot || !collections) {
-          return;
-        }
-
+        // Não voltar a setLoading(true) aqui: no refresh/revalidação os dados já estão visíveis,
+        // e mostrar loading de novo fazia o conteúdo "desaparecer" à frente do utilizador
         const user = userData;
         const invoices = invoicesData || [];
         
@@ -93,7 +156,7 @@ export default function DashboardPage() {
         if (hasUnpaid) {
           setToast({
             show: true,
-            message: 'Atenção: Tens pagamentos em atraso. Verifica a tua faturação.',
+            message: t.dashboard.page.unpaidPaymentsAlert,
             type: 'error'
           });
         }
@@ -101,19 +164,26 @@ export default function DashboardPage() {
         // Usar hasActiveSub memoizado
         setIsPro(hasActiveSub);
         
-        // Só mostrar o Paywall se não for Pro E não estivermos a voltar de um pagamento (session_id)
-        if (shouldShowPaywall) {
-          setShowPaywall(true);
-        }
+        // Paywall removido - contas free vão direto para o dashboard
 
         // Usar snapshot calculado pelo backend (sem cálculos no frontend!)
-        const transactions = collections.recent_transactions || [];
+        const transactions = collections.recent_transactions || collections.transactions || [];
         const categories = collections.categories || [];
+        
+        // Verificar se o utilizador está no mês atual para decidir se mostra demo
+        const now = new Date();
+        const isCurrentMonth = viewMonth.year === now.getFullYear() && viewMonth.month === now.getMonth();
+        
+        // Só mostrar dados demo se: não é Pro, está no mês atual, e não tem transações
+        // Para meses futuros/passados sem dados, mostrar zeros (não dados mock)
+        const isDemoMode = !hasActiveSub && isCurrentMonth && transactions.length === 0;
+        // Admins/Pro nunca veem Modo Demo – têm acesso completo
+        const lowData = !hasActiveSub && (transactions.length < 10 || isDemoMode);
 
-        // Se não for Pro e não tiver transações, usar demo
+        // Se não for Pro e não tiver transações no mês atual, usar demo
         let finalTransactions = transactions;
         let finalCategories = categories;
-        if (!hasActiveSub && transactions.length === 0) {
+        if (isDemoMode) {
           finalTransactions = DEMO_TRANSACTIONS;
           finalCategories = DEMO_CATEGORIES;
         }
@@ -145,18 +215,18 @@ export default function DashboardPage() {
               const overAmount = currentSpent - limit;
               return {
                 type: 'danger',
-                title: overAmount > 0 ? 'Limite Excedido!' : 'Limite Atingido!',
+                title: overAmount > 0 ? t.dashboard.page.limitExceeded : t.dashboard.page.limitReached,
                 message: overAmount > 0 
-                  ? `Gastaste mais ${formatCurrency(overAmount)} em ${cat.name} do que o planeado.`
-                  : `Atingiste o teu limite planeado de ${formatCurrency(limit)} em ${cat.name}.`,
+                  ? t.dashboard.page.limitExceededMessage.replace('{amount}', formatCurrency(overAmount)).replace('{category}', cat.name)
+                  : t.dashboard.page.limitReachedMessage.replace('{amount}', formatCurrency(limit)).replace('{category}', cat.name),
                 category: cat.name,
                 icon: 'AlertCircle'
               };
             } else if (progress >= 80) {
               return {
                 type: 'warning',
-                title: 'Atenção ao Limite',
-                message: `Estás a ${Math.max(1, Math.round(100 - progress))}% de atingir o limite em ${cat.name}.`,
+                title: t.dashboard.page.attentionToLimit,
+                message: t.dashboard.page.limitProgressMessage.replace('{pct}', String(Math.max(1, Math.round(100 - progress)))).replace('{name}', cat.name),
                 category: cat.name,
                 icon: 'Zap'
               };
@@ -166,40 +236,15 @@ export default function DashboardPage() {
           .filter(Boolean);
 
         setAlerts(newAlerts);
+        setHasLowData(lowData);
         
         // Usar dados do snapshot (já calculados pelo backend)
         const totalLimits = finalCategories
           .filter((c: any) => c.type === 'expense')
           .reduce((sum: number, c: any) => sum + (Number(c.monthly_limit_cents || 0) / 100), 0);
         
-        const now = new Date();
-        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        const daysPassed = now.getDate();
-        const daysLeft = Math.max(1, daysInMonth - daysPassed);
-        
-        // Processamento para o gráfico de Ritmo Diário
-        const dailySpending: any = {};
-        for (let i = 1; i <= daysInMonth; i++) {
-          dailySpending[i] = 0;
-        }
-
-        finalTransactions.forEach((t: any) => {
-          const tDate = new Date(t.transaction_date);
-          if (tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear()) {
-            const cat = categoryMap[t.category_id];
-            if (cat && cat.type === 'expense' && cat.vault_type === 'none') {
-              dailySpending[tDate.getDate()] += Math.abs(Number(t.amount_cents || 0) / 100);
-            }
-          }
-        });
-
-        const formattedTrendData = Object.entries(dailySpending).map(([day, amount]) => ({
-          day: `${day}`,
-          amount: Number(amount),
-          limit: snapshot.daily_allowance > 0 ? snapshot.daily_allowance : null
-        }));
-
-        setTrendData(formattedTrendData as any);
+        const totalBudget = snapshot.income > 0 ? snapshot.income : totalLimits;
+        const remainingMoney = Math.max(0, totalBudget - (snapshot.expenses || 0));
 
         // Usar snapshot do backend (fonte única de verdade)
         setStats({ 
@@ -207,11 +252,12 @@ export default function DashboardPage() {
           expenses: snapshot.expenses || 0, 
           balance: (snapshot.income || 0) - (snapshot.expenses || 0), 
           vault: snapshot.vault_total || 0,
-          totalLimits: snapshot.income > 0 ? snapshot.income : totalLimits,
           dailyAllowance: snapshot.daily_allowance || 0,
-          efficiencyScore: snapshot.saving_rate || 0
+          remainingMoney,
+          totalBudget,
+          vaultEmergency: snapshot.vault_emergency || 0,
+          vaultInvestment: snapshot.vault_investment || 0
         });
-        setChartData(Object.values(categoryMap).filter((c: any) => c.total > 0) as any);
       } catch (err) {
         console.error(err);
       } finally {
@@ -224,7 +270,7 @@ export default function DashboardPage() {
           });
         }
       }
-    }, [snapshot, collections, snapshotLoading, userData, invoicesData, hasActiveSub, shouldShowPaywall, formatCurrency, isPro]);
+    }, [snapshot, collections, snapshotLoading, userData, invoicesData, hasActiveSub, formatCurrency, isPro, viewMonth.year, viewMonth.month]);
   
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
@@ -238,30 +284,22 @@ export default function DashboardPage() {
           const verifyRes = await api.get(`/stripe/verify-session/${sessionId}`);
           
           if (verifyRes.data.success && verifyRes.data.is_active) {
-            // Subscrição ativa! Recarregar dados do utilizador
+            // Subscrição ativa! Recarregar user e caches SWR para o modo demo desaparecer sem F5
             await refreshUser();
-            const profileRes = await api.get('/auth/me');
-            const user = profileRes.data;
+            await mutateUserData();
+            await mutate('/stripe/invoices');
+            await mutateSnapshot();
             
-            // Atualizar estado para remover modo demo e banners
             setIsPro(true);
-            setShowPaywall(false); // Fechar paywall se estiver aberto
-            setShowUpgradeSuccess(true);
+            setShowPaywall(false);
             setIsProcessingUpgrade(false);
-            
-            // Limpar a URL sem recarregar a página
             window.history.replaceState({}, '', '/dashboard');
-            
-            // Confetti de celebração
-            confetti({
+            import('canvas-confetti').then(mod => mod.default({
               particleCount: 200,
               spread: 100,
               origin: { y: 0.6 },
               colors: ['#3b82f6', '#fbbf24', '#ffffff']
-            });
-            
-            // Invalidar cache SWR para recarregar dados
-            mutateSnapshot();
+            })).catch(() => {});
           } else if (retryCount < 5) {
             // Ainda não está completo, tentar novamente
             setTimeout(() => verifyAndActivate(retryCount + 1), 1500);
@@ -270,7 +308,7 @@ export default function DashboardPage() {
             setIsProcessingUpgrade(false);
             setToast({
               show: true,
-              message: 'O pagamento está a ser processado. A subscrição será ativada em breve.',
+              message: t.dashboard.page.paymentProcessing,
               type: 'success'
             });
             window.history.replaceState({}, '', '/dashboard');
@@ -285,7 +323,7 @@ export default function DashboardPage() {
             setIsProcessingUpgrade(false);
             setToast({
               show: true,
-              message: 'Erro ao verificar pagamento. Por favor, recarrega a página.',
+              message: t.dashboard.page.paymentVerifyError,
               type: 'error'
             });
             window.history.replaceState({}, '', '/dashboard');
@@ -296,356 +334,745 @@ export default function DashboardPage() {
       // Começar verificação após pequeno delay para dar tempo ao webhook
       setTimeout(() => verifyAndActivate(), 2000);
     }
-  }, [searchParams, refreshUser, mutateSnapshot]);
+  }, [searchParams, refreshUser, mutateUserData, mutateSnapshot]);
 
-  // Carregar dados quando snapshot estiver pronto
+  // Carregar dados quando snapshot estiver pronto; ao mudar viewMonth o hook pede novo mês e snapshot/collections atualizam
   useEffect(() => {
-    if (snapshot && collections && userData && !snapshotLoading) {
-      fetchData();
+    if (!userData) return;
+    if (snapshotLoading || !snapshot || !collections) {
+      // Se o snapshot terminou de carregar mas não tem dados (erro), desbloquear loading
+      if (!snapshotLoading && !snapshot) setLoading(false);
+      return;
     }
+    fetchData();
   }, [snapshot, collections, userData, snapshotLoading, fetchData]);
 
-  // Prefetch dos dados da Análise Pro quando o dashboard já está carregado
+  // Ao mudar o mês nas setas, forçar revalidação do snapshot para esse mês (não no primeiro mount)
+  const isFirstMount = useRef(true);
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    mutateSnapshot();
+  }, [viewMonth.year, viewMonth.month, mutateSnapshot]);
+
+  // Prefetch da Análise Pro -- usa SWR mutate para aquecer cache sem duplicar requests
   useEffect(() => {
     if (!loading && isPro) {
-      // Aguardar 2 segundos após o dashboard carregar antes de fazer prefetch
       const timer = setTimeout(() => {
-        const prefetchAnalytics = async () => {
-          try {
-            // Verificar se já existe cache recente (menos de 30 segundos)
-            const cached = localStorage.getItem('analytics_cache');
-            if (cached) {
-              const { timestamp } = JSON.parse(cached);
-              if (Date.now() - timestamp < 30000) {
-                return; // Cache ainda fresca, não precisa atualizar
-              }
-            }
-            
-            const [profileRes, analyticsRes] = await Promise.all([
-              api.get('/auth/me'),
-              api.get('/insights/composite')
-            ]);
-            
-            const user = profileRes.data;
-            const hasActiveSub = ['active', 'trialing', 'cancel_at_period_end'].includes(user.subscription_status);
-            
-            if (!hasActiveSub) return; // Só prefetch se for Pro
-            
-            let compositeData = {
-              ...analyticsRes.data,
-              subscription_status: user.subscription_status
-            };
-            
-            // Guardar no cache para uso imediato na página de analytics
-            localStorage.setItem('analytics_cache', JSON.stringify({
-              data: compositeData,
-              timestamp: Date.now()
-            }));
-          } catch (err) {
-            // Silenciar erros de prefetch - não é crítico
-            console.log('Prefetch analytics em background falhou (não crítico)');
-          }
-        };
-        
-        prefetchAnalytics();
-      }, 2000);
-      
+        // Revalidar SWR cache em background (sem fetch duplicado)
+        mutate('/insights/composite');
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [loading, isPro]);
+
+  // Dados para gráficos e "vs. mês anterior" (flow últimos 6 meses + distribution)
+  const chartProcessed = useMemo(() => {
+    // Se for Pro, só usar dados reais quando compositeData estiver disponível
+    // Se não for Pro ou compositeData ainda não chegou, usar dados demo
+    // Evita mostrar dados demo temporários que depois mudam para dados reais quando for Pro
+    const isProWaitingForData = hasActiveSub && !compositeData;
+    const shouldUseRealData = hasActiveSub && compositeData && !snapshotLoading && snapshot && collections;
+    
+    // Se for Pro mas ainda não tem compositeData, usar array vazio para não mostrar dados demo temporários
+    // Se não for Pro, usar dados demo normalmente
+    const raw = shouldUseRealData
+      ? { transactions: compositeData.transactions || [], categories: compositeData.categories || [] }
+      : isProWaitingForData
+        ? { transactions: [], categories: [] } // Pro aguardando dados - não mostrar demo temporário que depois muda
+        : { transactions: DEMO_TRANSACTIONS, categories: DEMO_CATEGORIES }; // Não Pro - dados demo são intencionais
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1, 0, 0, 0, 0);
+    const monthlyData: Record<string, { name: string; income: number; expenses: number }> = {};
+    const catDistribution: Record<string, number> = {};
+    const monthOrder = (s: string) => {
+      const [m, y] = s.split(' ');
+      const months: Record<string, number> = { jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12 };
+      return new Date(parseInt(y, 10), ((months[m?.toLowerCase() ?? ''] ?? 1) - 1), 1).getTime();
+    };
+
+    raw.transactions
+      .filter((t: any) => Math.abs((t.amount_cents || 0)) !== 1)
+      .forEach((t: any) => {
+        const date = new Date(t.transaction_date);
+        if (date < sixMonthsAgo || date > todayStart) return;
+        const monthYear = `${date.toLocaleString('pt-PT', { month: 'short' })} ${date.getFullYear()}`;
+        const cat = raw.categories.find((c: any) => c.id === t.category_id);
+        if (cat?.vault_type && cat.vault_type !== 'none') return;
+        if (!monthlyData[monthYear]) monthlyData[monthYear] = { name: monthYear, income: 0, expenses: 0 };
+        const amount = (t.amount_cents || 0) / 100;
+        if (cat?.type === 'income') {
+          monthlyData[monthYear].income += amount;
+        } else {
+          const exp = amount < 0 ? -amount : amount;
+          monthlyData[monthYear].expenses += exp;
+          const catName = cat?.name || 'Outros';
+          catDistribution[catName] = (catDistribution[catName] || 0) + exp;
+        }
+      });
+
+    const flow6 = Object.values(monthlyData).sort((a, b) => monthOrder(a.name) - monthOrder(b.name)).slice(-6);
+    const distribution = Object.entries(catDistribution).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+
+    // Fundos por mês (Emergência + Investimentos) – saldo acumulado por mês para gráfico de linhas
+    const vaultMonthlyMap: Record<string, { name: string; emergency: number; investment: number }> = {};
+    const vaultTxs = raw.transactions
+      .filter((t: any) => Math.abs((t.amount_cents || 0)) !== 1)
+      .map((t: any) => ({ ...t, cat: raw.categories.find((c: any) => c.id === t.category_id) }))
+      .filter((t: any) => t.cat && (t.cat.vault_type === 'emergency' || t.cat.vault_type === 'investment'))
+      .sort((a: any, b: any) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
+    vaultTxs.forEach((t: any) => {
+      const date = new Date(t.transaction_date);
+      if (date < sixMonthsAgo || date > todayStart) return;
+      const monthYear = `${date.toLocaleString('pt-PT', { month: 'short' })} ${date.getFullYear()}`;
+      if (!vaultMonthlyMap[monthYear]) vaultMonthlyMap[monthYear] = { name: monthYear, emergency: 0, investment: 0 };
+      const amt = (t.amount_cents || 0) / 100;
+      if (t.cat.vault_type === 'emergency') vaultMonthlyMap[monthYear].emergency += amt;
+      else vaultMonthlyMap[monthYear].investment += amt;
+    });
+    // Acumular por ordem de mês
+    const vaultMonthlySorted = Object.values(vaultMonthlyMap).sort((a, b) => monthOrder(a.name) - monthOrder(b.name)).slice(-6);
+    let cumE = 0, cumI = 0;
+    const vaultByMonth = vaultMonthlySorted.map((m) => {
+      cumE += m.emergency;
+      cumI += m.investment;
+      return { name: m.name, Emergência: cumE, Investimentos: cumI };
+    });
+
+    // Calcular percentagens comparando mês atual com mês anterior
+    // Usar snapshot do mês anterior se disponível, senão usar dados do flow6
+    // Não mostrar durante loading inicial para evitar valores incorretos temporários
+    // Guardar último valor válido para não desaparecer quando dados recalculam temporariamente
+    const hasCurrentData = !loading && !snapshotLoading && snapshot && collections;
+    
+    // Tentar usar snapshot do mês anterior primeiro (mais preciso)
+    const prevIncomeFromSnapshot = prevSnapshot?.income ?? null;
+    const prevExpensesFromSnapshot = prevSnapshot?.expenses ?? null;
+    const prevBalanceFromSnapshot = prevIncomeFromSnapshot !== null && prevExpensesFromSnapshot !== null 
+      ? prevIncomeFromSnapshot - prevExpensesFromSnapshot 
+      : null;
+    
+    // Se não tiver snapshot anterior, tentar usar dados do flow6
+    const prevFromFlow6 = flow6.length >= 2 ? flow6[flow6.length - 2] : null;
+    const prevIncome = prevIncomeFromSnapshot !== null ? prevIncomeFromSnapshot : (prevFromFlow6?.income ?? null);
+    const prevExpenses = prevExpensesFromSnapshot !== null ? prevExpensesFromSnapshot : (prevFromFlow6?.expenses ?? null);
+    const prevBalance = prevBalanceFromSnapshot !== null ? prevBalanceFromSnapshot : (prevFromFlow6 ? prevFromFlow6.income - prevFromFlow6.expenses : null);
+    
+    // Sempre calcular percentagens quando temos dados do mês atual
+    // Se não tivermos dados do mês anterior, comparar com 0 (primeiro mês)
+    const canCalculatePercentages = hasCurrentData;
+    
+    let vsIncome, vsExpenses, vsBalance;
+    
+    if (canCalculatePercentages) {
+      // Calcular novas percentagens comparando mês atual com anterior
+      // Só calcular se tivermos dados do mês anterior (não usar 0 como fallback)
+      
+      // Para receitas e despesas, verificar se temos dados anteriores
+      if (prevIncome === null) {
+        vsIncome = { pct: null, label: '—' };
+      } else if (prevIncome === 0) {
+        vsIncome = stats.income > 0 
+          ? { pct: Infinity, label: t.dashboard.page.newLabel }
+          : { pct: 0, label: '0%' };
+      } else {
+        const incomeChange = ((stats.income - prevIncome) / prevIncome) * 100;
+        vsIncome = { 
+          pct: incomeChange, 
+          label: incomeChange >= 0 ? `+${incomeChange.toFixed(1)}%` : `${incomeChange.toFixed(1)}%` 
+        };
+      }
+      
+      if (prevExpenses === null) {
+        vsExpenses = { pct: null, label: '—' };
+      } else if (prevExpenses === 0) {
+        vsExpenses = stats.expenses > 0 
+          ? { pct: Infinity, label: t.dashboard.page.newLabel }
+          : { pct: 0, label: '0%' };
+      } else {
+        const expensesChange = ((stats.expenses - prevExpenses) / prevExpenses) * 100;
+        vsExpenses = { 
+          pct: expensesChange, 
+          label: expensesChange >= 0 ? `+${expensesChange.toFixed(1)}%` : `${expensesChange.toFixed(1)}%` 
+        };
+      }
+      
+      // Para balance, verificar se temos dados válidos do mês anterior
+      if (prevBalance === null) {
+        vsBalance = { pct: null, label: '—' };
+      } else if (prevBalance === 0) {
+        // Se o saldo anterior era realmente 0, calcular percentagem corretamente
+        // Se o saldo atual é positivo, é um aumento infinito (de 0 para X)
+        // Se o saldo atual é negativo, é uma diminuição infinita (de 0 para -X)
+        vsBalance = stats.balance !== 0
+          ? { pct: stats.balance > 0 ? Infinity : -Infinity, label: t.dashboard.page.newLabel }
+          : { pct: 0, label: '0%' };
+      } else {
+        // Calcular percentagem normalmente quando temos valores válidos
+        const balanceChange = ((stats.balance - prevBalance) / Math.abs(prevBalance)) * 100;
+        vsBalance = { 
+          pct: balanceChange, 
+          label: balanceChange >= 0 ? `+${balanceChange.toFixed(1)}%` : `${balanceChange.toFixed(1)}%` 
+        };
+      }
+      
+      // Guardar valores válidos apenas se calculámos percentagens válidas
+      if (vsIncome.pct !== null || vsExpenses.pct !== null || vsBalance.pct !== null) {
+        lastValidPercentages.current = { vsIncome, vsExpenses, vsBalance };
+      }
+    } else {
+      // Usar último valor válido se existir, senão mostrar '—'
+      if (lastValidPercentages.current) {
+        vsIncome = lastValidPercentages.current.vsIncome;
+        vsExpenses = lastValidPercentages.current.vsExpenses;
+        vsBalance = lastValidPercentages.current.vsBalance;
+      } else {
+        vsIncome = { pct: null, label: '—' };
+        vsExpenses = { pct: null, label: '—' };
+        vsBalance = { pct: null, label: '—' };
+      }
+    }
+
+    return { flow6, distribution, vsIncome, vsExpenses, vsBalance, vaultByMonth };
+  }, [hasActiveSub, compositeData, stats.income, stats.expenses, stats.balance, snapshotLoading, snapshot, collections, loading, prevSnapshot, prevMonth]);
+
+  const defaultName = t.dashboard.page.defaultUserName;
+  const userName = (userData?.full_name || (userData?.email || '').split('@')[0] || defaultName).trim() || defaultName;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? t.dashboard.page.greetingMorning : hour < 18 ? t.dashboard.page.greetingAfternoon : t.dashboard.page.greetingEvening;
+  const filterMonthLabel = new Date(viewMonth.year, viewMonth.month, 1).toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
+
+  const visibleAlerts = alerts.slice(0, 2);
+  const hasMoreAlerts = alerts.length > 2;
+  const budgetUsage = stats.totalBudget > 0 ? (stats.expenses / stats.totalBudget) * 100 : 0;
+  const quickInsights = hasLowData
+    ? [
+        t.dashboard.page.insightStartWell,
+        t.dashboard.page.insightFewRecords,
+        t.dashboard.page.insightTip
+      ]
+    : [
+        stats.dailyAllowance > 0
+          ? t.dashboard.page.insightDailyAllowance.replace('{amount}', formatCurrency(stats.dailyAllowance))
+          : t.dashboard.page.insightNoBudget,
+        stats.balance >= 0
+          ? t.dashboard.page.positiveBalance
+          : t.dashboard.page.negativeBalance,
+        stats.totalBudget > 0
+          ? t.dashboard.page.insightBudgetUsed.replace('{pct}', String(Math.min(100, Math.round(budgetUsage))))
+          : t.dashboard.page.insightNoMonthlyBudget
+      ];
 
   if (loading) {
     return <LoadingScreen />;
   }
 
+  const motionOpts = isMobile
+    ? { initial: { opacity: 1 } as const, animate: { opacity: 1 } as const, transition: { duration: 0 } }
+    : { initial: { opacity: 0, y: 20 } as const, animate: { opacity: 1, y: 0 } as const, transition: { duration: 0.5 } };
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="text-white pb-20"
+      {...motionOpts}
+      className="text-white pb-20 -mt-4"
     >
-      <div className="flex items-center justify-between mb-12">
-        <h1 className="text-4xl font-black tracking-tighter text-white">{t.dashboard.page.title}</h1>
-        
+      {/* Cabeçalho: saudação + resumo | Modo Demo + Upgrade Pro */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 mt-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tighter text-white">
+            {greeting}, {userName}
+          </h1>
+          <p className="text-slate-500 text-xs sm:text-sm font-medium italic mt-1">{t.dashboard.page.headerSubtitle}</p>
+        </div>
         {!isPro && (
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
+            data-onboarding-target="upgrade-pro"
+            initial={isMobile ? false : { opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-2xl"
+            transition={isMobile ? { duration: 0 } : undefined}
+            className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 bg-amber-500/10 border border-amber-500/20 px-3 sm:px-4 py-2 rounded-xl sm:rounded-2xl w-full sm:w-auto shrink-0"
           >
-            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">{t.dashboard.page.demoMode}</span>
-            <Link 
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-500 truncate">{t.dashboard.page.demoMode}</span>
+            </div>
+            <Link
               href="/pricing"
-              className="ml-2 bg-amber-500 hover:bg-amber-400 text-black px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-colors"
+              className="bg-amber-500 hover:bg-amber-400 text-black px-3 py-1.5 sm:py-1 rounded-lg text-[9px] font-black uppercase transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             >
               {t.dashboard.page.upgradePro}
             </Link>
           </motion.div>
         )}
       </div>
-      
-      <div className="relative mb-12">
-        <ZenInsights />
-        {!isPro && (
-          <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-[32px] border border-white/5 pointer-events-none">
-            {/* Overlay contents are handled within components or removed for cleaner look if preferred */}
+
+      {/* Filtros (esquerda) | Nova transação (direita) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{t.dashboard.page.filters}</span>
+          <div className="flex items-center gap-0.5 bg-slate-900/70 border border-slate-700/60 rounded-lg px-2 py-1.5">
+            <Calendar size={13} className="text-slate-400 shrink-0" />
+            <button
+              type="button"
+              disabled={snapshotLoading}
+              onClick={() => setViewMonth((p: { year: number; month: number }) => (p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 }))}
+              className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={t.dashboard.page.previousMonth}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-xs font-bold text-white min-w-[100px] sm:min-w-[130px] text-center capitalize flex items-center justify-center gap-1.5">
+              {snapshotLoading ? <Loader2 size={12} className="animate-spin text-slate-400 shrink-0" /> : null}
+              {filterMonthLabel}
+            </span>
+            <button
+              type="button"
+              disabled={snapshotLoading}
+              onClick={() => setViewMonth((p: { year: number; month: number }) => (p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 }))}
+              className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={t.dashboard.page.nextMonth}
+            >
+              <ChevronRight size={16} />
+            </button>
+            {(() => {
+              const now = new Date();
+              const isCurrentMonth = viewMonth.year === now.getFullYear() && viewMonth.month === now.getMonth();
+              if (isCurrentMonth) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => setViewMonth({ year: now.getFullYear(), month: now.getMonth() })}
+                  className="ml-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500 hover:text-blue-400 transition-colors cursor-pointer"
+                >
+                  {t.dashboard.page.currentMonth}
+                </button>
+              );
+            })()}
           </div>
+        </div>
+        {hasActiveSub && (
+          <button
+            type="button"
+            onClick={() => setShowAddTransactionModal(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer shadow-lg shadow-blue-600/20 w-full sm:w-auto"
+          >
+            <Plus size={16} className="shrink-0" />
+            <span>{t.dashboard.page.newTransaction}</span>
+          </button>
         )}
       </div>
 
-      {/* Primary Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-        <motion.div 
-          whileHover={{ y: -5 }}
-          className="bg-slate-900/40 backdrop-blur-xl p-8 rounded-[32px] border border-white/5 shadow-xl relative overflow-hidden group"
-        >
-          <div className="flex items-center space-x-6">
-            <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-              <ArrowUpCircle size={28} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.income}</p>
-              <p className="text-3xl font-black text-white tracking-tighter">
-                {formatCurrency(stats.income)}
-                <span className="text-emerald-400 ml-2 text-2xl">↑</span>
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div 
-          whileHover={{ y: -5 }}
-          className="bg-slate-900/40 backdrop-blur-xl p-8 rounded-[32px] border border-white/5 shadow-xl relative overflow-hidden group"
-        >
-          <div className="flex items-center space-x-6">
-            <div className="w-12 h-12 bg-red-500/10 text-red-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-              <ArrowDownCircle size={28} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.expenses}</p>
-              <p className="text-3xl font-black text-white tracking-tighter">
-                {formatCurrency(stats.expenses)}
-                <span className="text-red-400 ml-2 text-2xl">↓</span>
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div 
-          whileHover={{ y: -5 }}
-          className="bg-slate-900/40 backdrop-blur-xl p-8 rounded-[32px] border border-white/5 shadow-xl relative overflow-hidden group"
-        >
-          <div className="flex items-center space-x-6">
-            <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Target size={28} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.invested}</p>
-              <p className="text-3xl font-black text-white tracking-tighter">
-                {formatCurrency(stats.vault)}
-                <span className="text-blue-400 ml-2 text-2xl">💎</span>
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div 
-          whileHover={{ y: -5 }}
-          className="bg-slate-900/40 backdrop-blur-xl p-8 rounded-[32px] border border-white/5 shadow-xl relative overflow-hidden group"
-        >
-          <div className="flex items-center space-x-6">
-            <div className="w-12 h-12 bg-slate-800/50 text-slate-400 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Wallet size={28} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">{t.dashboard.page.balance}</p>
-              <p className="text-3xl font-black text-white tracking-tighter">
-                {formatCurrency(stats.balance)}
-              </p>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Zen Projections & Unique Dashboard Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-        <motion.div 
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-950 p-10 rounded-[48px] border border-white/5 shadow-2xl relative overflow-hidden group"
-        >
-          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 blur-[80px] rounded-full" />
-          
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 relative z-10">
-            <div className="space-y-6 flex-1">
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-[0.4em] text-blue-500 mb-2">{t.dashboard.page.monthlyCashFlow}</h3>
-                <p className="text-3xl font-black text-white tracking-tighter">
-                  {formatCurrency(stats.expenses)} <span className="text-slate-600 text-xl font-medium">/ {formatCurrency(stats.totalLimits || 0)}</span>
-                </p>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  <span>{t.dashboard.page.consumptionVsIncome}</span>
-                  <span>{stats.totalLimits > 0 ? Math.round((stats.expenses / stats.totalLimits) * 100) : 0}% {t.dashboard.page.used}</span>
-                </div>
-                <div className="h-4 w-full bg-white/5 rounded-2xl p-1 border border-white/5">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, stats.totalLimits > 0 ? (stats.expenses / stats.totalLimits) * 100 : 0)}%` }}
-                    className={`h-full rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-colors duration-500 ${
-                      (stats.expenses / stats.totalLimits) > 0.9 ? 'bg-red-500' : 
-                      (stats.expenses / stats.totalLimits) > 0.7 ? 'bg-amber-500' : 'bg-blue-600'
-                    }`}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="w-px h-24 bg-white/5 hidden md:block" />
-
-            <div className="space-y-2 text-center md:text-right">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{t.dashboard.page.dailyAllowance}</p>
-              <p className={`text-4xl font-black tracking-tighter ${stats.dailyAllowance > 20 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {formatCurrency(stats.dailyAllowance || 0)}
-              </p>
-              <p className="text-[9px] font-bold text-slate-600 uppercase italic">{t.dashboard.page.dailyAllowanceDesc}</p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div 
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-slate-900/40 backdrop-blur-xl p-10 rounded-[48px] border border-white/5 shadow-2xl flex flex-col justify-between group"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 text-center">{t.dashboard.page.efficiency}</h3>
-            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-              <Zap size={16} />
-            </div>
-          </div>
-          
-          <div className="flex flex-col items-center gap-4 py-4">
-            <div className="relative flex items-center justify-center">
-              <svg className="w-32 h-32 transform -rotate-90">
-                <circle
-                  cx="64"
-                  cy="64"
-                  r="58"
-                  stroke="currentColor"
-                  strokeWidth="8"
-                  fill="transparent"
-                  className="text-white/5"
-                />
-                <motion.circle
-                  cx="64"
-                  cy="64"
-                  r="58"
-                  stroke="currentColor"
-                  strokeWidth="8"
-                  fill="transparent"
-                  strokeDasharray={364.4}
-                  initial={{ strokeDashoffset: 364.4 }}
-                  animate={{ strokeDashoffset: 364.4 - (364.4 * Math.max(0, Math.min(100, stats.efficiencyScore))) / 100 }}
-                  className="text-emerald-500"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-black text-white leading-none">{Math.round(stats.efficiencyScore || 0)}%</span>
-                <span className="text-[8px] font-black uppercase text-slate-500 mt-1">{t.dashboard.page.score}</span>
-              </div>
-            </div>
-            
-            <p className="text-center text-xs text-slate-400 font-medium italic mt-2 px-4 leading-relaxed">
-              {stats.efficiencyScore > 30 ? t.dashboard.page.efficiencyMessages.excellent : 
-               stats.efficiencyScore > 10 ? t.dashboard.page.efficiencyMessages.good :
-               t.dashboard.page.efficiencyMessages.focus}
-            </p>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Telegram Promo Card */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-12 bg-gradient-to-r from-blue-600/10 to-indigo-600/10 border border-blue-500/20 rounded-[40px] p-8 relative overflow-hidden group"
-      >
-        <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-          <ArrowRightCircle size={80} className="text-blue-500 -rotate-45" />
-        </div>
-        <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
-          <div className="w-16 h-16 bg-blue-500 rounded-[24px] flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
-            <ZapIcon size={32} className="text-white fill-white" />
-          </div>
-          <div className="flex-1 text-center md:text-left space-y-2">
-            <h3 className="text-xl font-black uppercase tracking-tight text-white">{t.dashboard.page.telegramBot}</h3>
-            <p className="text-sm text-slate-400 font-medium italic">{t.dashboard.page.telegramDesc}</p>
-          </div>
-          <a 
-            href="https://t.me/FinanZenApp_bot" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] whitespace-nowrap"
+      {/* 3 cards: Receitas | Despesas | Saldo */}
+      <section className="mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <motion.div
+            whileHover={isMobile ? undefined : { y: -3, transition: { duration: 0.2 } }}
+            className="bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-700/60 shadow-2xl group"
           >
-            {t.dashboard.page.associateTelegram}
-          </a>
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-7 h-7 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg flex items-center justify-center shrink-0">
+                <ArrowUpCircle size={14} />
+              </div>
+              {chartProcessed.vsIncome.label && chartProcessed.vsIncome.label !== '—' && (
+                <span className={`text-[10px] font-bold flex items-center gap-0.5 px-1.5 py-0.5 rounded-md ${(chartProcessed.vsIncome.pct ?? 0) >= 0 ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
+                  {(chartProcessed.vsIncome.pct ?? 0) >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                  {chartProcessed.vsIncome.label}
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">{t.dashboard.page.income}</p>
+            <p className="text-lg sm:text-xl font-black text-emerald-400 tabular-nums truncate" title={formatCurrency(stats.income)}>{formatCurrency(stats.income)}</p>
+          </motion.div>
+
+          <motion.div
+            whileHover={isMobile ? undefined : { y: -3, transition: { duration: 0.2 } }}
+            className="bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-700/60 shadow-2xl group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-7 h-7 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center justify-center shrink-0">
+                <ArrowDownCircle size={14} />
+              </div>
+              {chartProcessed.vsExpenses.label && chartProcessed.vsExpenses.label !== '—' && (
+                <span className={`text-[10px] font-bold flex items-center gap-0.5 px-1.5 py-0.5 rounded-md ${(chartProcessed.vsExpenses.pct ?? 0) <= 0 ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
+                  {(chartProcessed.vsExpenses.pct ?? 0) <= 0 ? <TrendingDown size={10} /> : <TrendingUp size={10} />}
+                  {chartProcessed.vsExpenses.label}
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">{t.dashboard.page.expenses}</p>
+            <p className="text-lg sm:text-xl font-black text-red-400 tabular-nums truncate" title={formatCurrency(stats.expenses)}>{formatCurrency(stats.expenses)}</p>
+          </motion.div>
+
+          <motion.div
+            whileHover={isMobile ? undefined : { y: -3, transition: { duration: 0.2 } }}
+            className="bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-700/60 shadow-2xl group sm:col-span-2 md:col-span-1"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${stats.balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                <Wallet size={14} />
+              </div>
+              {chartProcessed.vsBalance.label && chartProcessed.vsBalance.label !== '—' && (
+                <span className={`text-[10px] font-bold flex items-center gap-0.5 px-1.5 py-0.5 rounded-md ${(chartProcessed.vsBalance.pct ?? 0) >= 0 ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
+                  {(chartProcessed.vsBalance.pct ?? 0) >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                  {chartProcessed.vsBalance.label}
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">{t.dashboard.page.balance}</p>
+            <p className={`text-lg sm:text-xl font-black tabular-nums truncate ${stats.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`} title={formatCurrency(stats.balance)}>
+              {formatCurrency(stats.balance)}
+            </p>
+          </motion.div>
         </div>
-      </motion.div>
+      </section>
+
+      {/* 4 quadrados: [Evolução] [Analytics donut]; [Fundos] — scroll-section no mobile para content-visibility */}
+      <section className="scroll-section mb-6 sm:mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Activity size={13} className="text-blue-400" />
+            </div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-white">{t.dashboard.page.charts}</h2>
+          </div>
+          {isPro && (
+            <Link href="/analytics" className="text-[9px] font-bold uppercase tracking-wider text-blue-400 hover:text-blue-300 transition-colors">
+              {t.dashboard.page.viewFullAnalysis}
+            </Link>
+          )}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Quadrado 1: Evolução Financeira – ocupa 2/3 */}
+          <motion.div
+            initial={isMobile ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={isMobile ? { duration: 0 } : {}}
+            className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-2xl p-4 sm:p-5 shadow-2xl lg:col-span-2"
+          >
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white mb-0.5">{t.dashboard.page.financialEvolution}</h3>
+            <p className="text-[10px] text-slate-500 font-medium italic mb-3">{t.dashboard.page.last6Months}</p>
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartProcessed.flow6} margin={{ top: 10, right: 10, left: 0, bottom: isMobile ? 5 : 0 }}>
+                  <defs>
+                    <linearGradient id="dashIncome" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="dashExpenses" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                  <XAxis 
+                    dataKey="name" 
+                    stroke="#475569" 
+                    fontSize={isMobile ? 9 : 10} 
+                    fontWeight="bold" 
+                    interval={0}
+                    angle={isMobile ? -45 : 0}
+                    textAnchor={isMobile ? "end" : "middle"}
+                    height={isMobile ? 50 : 30}
+                  />
+                  <YAxis stroke="#475569" fontSize={10} tickFormatter={(v) => formatCurrency(v)} width={72} />
+                  <Tooltip contentStyle={{ backgroundColor: '#334155', border: '1px solid #475569', borderRadius: '12px', color: '#f1f5f9', padding: '10px 14px' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={(value: number | undefined) => formatCurrency(value ?? 0)} />
+                  <Area type="monotone" dataKey="income" name={t.dashboard.page.income} stroke="#10b981" fill="url(#dashIncome)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="expenses" name={t.dashboard.page.expenses} stroke="#ef4444" fill="url(#dashExpenses)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex items-center justify-end gap-6 mt-2 text-[10px] font-bold uppercase tracking-wider">
+              <span className="text-emerald-400">● {t.dashboard.page.incomeLabel}</span>
+              <span className="text-red-400">● {t.dashboard.page.expenseLabel}</span>
+            </div>
+          </motion.div>
+
+          {/* Quadrado 2+4: Analytics – coluna direita 1/3 */}
+          <motion.div
+            initial={isMobile ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={isMobile ? { duration: 0 } : { delay: 0.05 }}
+            className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col lg:col-span-1 lg:row-span-2 min-h-[420px] lg:min-h-0"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
+                <Activity size={14} />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">{t.dashboard.page.analyticsTitle}</h3>
+                <p className="text-[10px] text-slate-500 font-medium">{t.dashboard.page.expensesByCategory}</p>
+              </div>
+            </div>
+            <div className="relative flex-1 min-h-[280px] w-full flex items-center justify-center">
+              {chartProcessed.distribution.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartProcessed.distribution}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="45%"
+                        outerRadius="70%"
+                        paddingAngle={2}
+                        dataKey="value"
+                        nameKey="name"
+                        label={false}
+                      >
+                        {chartProcessed.distribution.map((_, i) => (
+                          <Cell key={i} fill={['#38bdf8','#2dd4bf','#a78bfa','#f472b6','#facc15','#fdba74','#34d399','#22d3ee'][i % 8]} stroke="rgba(15,23,42,0.6)" strokeWidth={2} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#334155', border: '1px solid #475569', borderRadius: '12px', color: '#f1f5f9', padding: '10px 14px' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={(value: number | undefined, name: string | undefined) => [formatCurrency(value ?? 0), name ?? '']} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="text-center">
+                      <p className="text-2xl md:text-3xl font-black text-white">
+                        {chartProcessed.distribution.length > 0
+                          ? `${((chartProcessed.distribution[0].value / chartProcessed.distribution.reduce((s, x) => s + x.value, 0)) * 100).toFixed(0)}%`
+                          : '—'}
+                      </p>
+                      <p className="text-sm font-bold text-white/90 mt-0.5 capitalize">
+                        {chartProcessed.distribution[0]?.name ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-slate-500 text-sm italic">{t.dashboard.page.noExpensesByCategory}</p>
+              )}
+            </div>
+            {chartProcessed.distribution.length > 0 && (
+              <>
+                <div className="mt-4 p-4 rounded-2xl bg-slate-900/70 border border-slate-700/60 flex flex-row items-center justify-between gap-4 shrink-0">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total</p>
+                    <p className="text-lg font-black text-white">
+                      {formatCurrency(chartProcessed.distribution.reduce((s, x) => s + x.value, 0))}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.page.biggestExpense}</p>
+                    <p className="text-lg font-black text-violet-400 capitalize">
+                      {chartProcessed.distribution[0]?.name ?? '—'}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 p-4 rounded-2xl bg-slate-900/70 border border-slate-700/60 space-y-2 shrink-0 overflow-auto max-h-[180px]">
+                  {chartProcessed.distribution.map((entry, i) => {
+                    const total = chartProcessed.distribution.reduce((s, x) => s + x.value, 0);
+                    const pct = total > 0 ? ((entry.value / total) * 100).toFixed(1) : '0';
+                    const color = ['#38bdf8','#2dd4bf','#a78bfa','#f472b6','#facc15','#fdba74','#34d399','#22d3ee'][i % 8];
+                    return (
+                      <div key={`dist-${i}-${entry.name}`} className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                          <span className="text-slate-300 font-medium truncate capitalize">{entry.name}</span>
+                        </div>
+                        <span className="text-white font-bold shrink-0 ml-2">{pct}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </motion.div>
+
+          {/* Metade esquerda (2/3 da linha): dentro, Fundos 1/3 + Distribuição 2/3 */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:col-span-2">
+            {/* Fundos · Investimentos e Emergência – 1/3 da metade */}
+            <motion.div
+              initial={isMobile ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={isMobile ? { duration: 0 } : { delay: 0.08 }}
+              className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col lg:col-span-1"
+            >
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white mb-3">{t.dashboard.page.fundsInvestmentsEmergency}</h3>
+              <div className="space-y-3 flex-1 min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 py-2.5 px-3 rounded-xl bg-slate-900/70 border border-slate-700/60 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                      <ShieldCheck size={16} />
+                    </div>
+                    <div className="min-w-0 overflow-hidden">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 truncate">{t.dashboard.vault.emergencyFund}</p>
+                      <p className="text-sm font-black text-white truncate">{formatCurrency(stats.vaultEmergency)}</p>
+                    </div>
+                  </div>
+                  <div className="h-1.5 w-full sm:w-14 sm:shrink-0 sm:min-w-[3.5rem] bg-slate-700 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-amber-500 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (stats.vaultEmergency / Math.max(1, stats.vaultEmergency + stats.vaultInvestment)) * 100)}%` }}
+                      transition={{ duration: isMobile ? 0 : 0.5 }}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 py-2.5 px-3 rounded-xl bg-slate-900/70 border border-slate-700/60 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                      <Target size={16} />
+                    </div>
+                    <div className="min-w-0 overflow-hidden">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 truncate">{t.dashboard.vault.investments}</p>
+                      <p className="text-sm font-black text-white truncate">{formatCurrency(stats.vaultInvestment)}</p>
+                    </div>
+                  </div>
+                  <div className="h-1.5 w-full sm:w-14 sm:shrink-0 sm:min-w-[3.5rem] bg-slate-700 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-blue-500 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (stats.vaultInvestment / Math.max(1, stats.vaultEmergency + stats.vaultInvestment)) * 100)}%` }}
+                      transition={{ duration: isMobile ? 0 : 0.5 }}
+                    />
+                  </div>
+                </div>
+                <div className="py-2 px-3 rounded-xl bg-slate-900/70 border border-slate-700/60 flex items-center justify-between">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">{t.dashboard.page.totalFunds}</span>
+                  <span className="text-sm font-black text-white">{formatCurrency(stats.vaultEmergency + stats.vaultInvestment)}</span>
+                </div>
+              </div>
+              {isPro && (
+                <Link href="/vault" className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors inline-flex items-center gap-1">
+                  {t.dashboard.page.viewVaults} <ChevronRight size={12} />
+                </Link>
+              )}
+            </motion.div>
+
+            {/* Distribuição de fundos por mês – 2/3 da metade */}
+            <motion.div
+              initial={isMobile ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={isMobile ? { duration: 0 } : { delay: 0.1 }}
+              className="bg-slate-900/70 backdrop-blur-md border border-slate-700/60 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col lg:col-span-2"
+            >
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white mb-3">{t.dashboard.page.fundsDistributionByMonth}</h3>
+            <div className="flex-1 min-h-[180px] flex items-center justify-center">
+              {chartProcessed.vaultByMonth.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartProcessed.vaultByMonth} margin={{ top: 10, right: 10, left: 0, bottom: isMobile ? 5 : 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="#475569" 
+                      fontSize={isMobile ? 9 : 10} 
+                      fontWeight="bold" 
+                      interval={0}
+                      angle={isMobile ? -45 : 0}
+                      textAnchor={isMobile ? "end" : "middle"}
+                      height={isMobile ? 50 : 30}
+                    />
+                    <YAxis stroke="#475569" fontSize={10} tickFormatter={(v) => formatCurrency(v)} width={56} />
+                    <Tooltip contentStyle={{ backgroundColor: '#334155', border: '1px solid #475569', borderRadius: '12px', color: '#f1f5f9', padding: '10px 14px' }} itemStyle={{ color: '#f1f5f9' }} labelStyle={{ color: '#e2e8f0', fontWeight: 600 }} formatter={(value: number | undefined) => formatCurrency(value ?? 0)} />
+                    <Line type="monotone" dataKey="Emergência" name={t.dashboard.page.emergency} stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} />
+                    <Line type="monotone" dataKey="Investimentos" name={t.dashboard.page.investments} stroke="#3b82f6" strokeWidth={2} dot={{ fill: '#3b82f6', r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-slate-500 text-sm italic text-center">{t.dashboard.page.noVaultData}</p>
+              )}
+            </div>
+            {chartProcessed.vaultByMonth.length > 0 && (
+              <div className="flex items-center justify-end gap-4 mt-2 text-[10px] font-bold uppercase tracking-wider">
+                <span className="text-amber-400">— {t.dashboard.page.emergency}</span>
+                <span className="text-blue-400">— {t.dashboard.page.investments}</span>
+              </div>
+            )}
+          </motion.div>
+          </div>
+        </div>
+      </section>
+
+      <section className="scroll-section mb-6 sm:mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Sparkles size={13} className="text-blue-400" />
+            </div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-white">{t.dashboard.page.quickInsightsTitle}</h2>
+          </div>
+          {isPro && (
+            <Link href="/analytics" className="text-[9px] font-bold uppercase tracking-wider text-blue-400 hover:text-blue-300 transition-colors">
+              {t.dashboard.page.viewDetails}
+            </Link>
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          {quickInsights.map((insight, index) => (
+            <div
+              key={index}
+              className="bg-slate-900/70 backdrop-blur-md p-3.5 rounded-2xl border border-slate-700/60 shadow-xl text-xs text-slate-300 font-medium italic flex items-center gap-2.5"
+            >
+              <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                <Sparkles size={12} />
+              </div>
+              <span className="line-clamp-2">{insight}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Financial Health Alerts */}
       <AnimatePresence>
         {alerts.length > 0 && (
           <motion.section 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mb-12 space-y-4"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="mb-8 space-y-3"
           >
-            <div className="flex items-center gap-3 px-2 mb-4">
-              <AlertCircle size={18} className="text-red-500" />
-              <h2 className="text-[10px] font-black tracking-[0.4em] text-slate-500 uppercase">{t.dashboard.page.alerts}</h2>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                  <AlertCircle size={13} className="text-red-400" />
+                </div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-white">{t.dashboard.page.alerts}</h2>
+                <span className="text-[9px] font-bold px-2 py-0.5 bg-red-500/10 border border-red-500/20 rounded-md text-red-400">{alerts.length}</span>
+              </div>
+              {hasMoreAlerts && (
+                <Link href="/categories" className="text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition-colors">
+                  {t.dashboard.page.viewMoreAlerts}
+                </Link>
+              )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {alerts.map((alert, idx) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {visibleAlerts.map((alert, idx) => (
                 <motion.div
                   key={idx}
-                  initial={{ opacity: 0, x: -20 }}
+                  initial={{ opacity: 0, x: -12 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  className={`relative overflow-hidden p-6 rounded-[32px] border flex items-center gap-6 transition-all group ${
+                  transition={{ delay: idx * 0.04 }}
+                  className={`relative overflow-hidden p-3.5 rounded-2xl border flex items-center gap-3 transition-all group ${
                     alert.type === 'danger' 
-                      ? 'bg-red-500/[0.03] border-red-500/20 hover:border-red-500/40 shadow-[0_0_30px_-10px_rgba(239,68,68,0.1)]' 
-                      : 'bg-amber-500/[0.03] border-amber-500/20 hover:border-amber-500/40 shadow-[0_0_30px_-10px_rgba(245,158,11,0.1)]'
+                      ? 'bg-red-500/[0.03] border-red-500/20 hover:border-red-500/35' 
+                      : 'bg-amber-500/[0.03] border-amber-500/20 hover:border-amber-500/35'
                   }`}
                 >
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${
-                    alert.type === 'danger' ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'
+                  <div className={`absolute top-0 left-0 w-0.5 h-full ${alert.type === 'danger' ? 'bg-red-500/50' : 'bg-amber-500/50'}`} />
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                    alert.type === 'danger' ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                   }`}>
-                    {alert.icon === 'AlertCircle' ? <AlertCircle size={28} /> : <Zap size={28} />}
+                    {alert.icon === 'AlertCircle' ? <AlertCircle size={16} /> : <Zap size={16} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className={`text-sm font-black uppercase tracking-tight mb-1 ${
-                      alert.type === 'danger' ? 'text-red-400' : 'text-amber-400'
-                    }`}>
+                    <h4 className={`text-xs font-bold mb-0.5 ${alert.type === 'danger' ? 'text-red-400' : 'text-amber-400'}`}>
                       {alert.title}
                     </h4>
-                    <p className="text-xs text-slate-400 font-medium italic truncate">
-                      {alert.message}
-                    </p>
+                    <p className="text-[10px] text-slate-400 font-medium italic truncate">{alert.message}</p>
                   </div>
                   <Link 
                     href="/categories" 
-                    className={`p-3 rounded-xl transition-all ${
-                      alert.type === 'danger' ? 'hover:bg-red-500/10 text-red-500' : 'hover:bg-amber-500/10 text-amber-500'
+                    className={`p-2 rounded-lg transition-all shrink-0 ${
+                      alert.type === 'danger' ? 'hover:bg-red-500/10 text-red-400' : 'hover:bg-amber-500/10 text-amber-400'
                     }`}
                   >
-                    <ChevronRight size={20} />
+                    <ChevronRight size={16} />
                   </Link>
                 </motion.div>
               ))}
@@ -653,107 +1080,6 @@ export default function DashboardPage() {
           </motion.section>
         )}
       </AnimatePresence>
-
-      <div className="bg-slate-900/30 backdrop-blur-sm p-10 rounded-[48px] border border-white/5 shadow-2xl relative overflow-hidden group/chart">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500/20 to-transparent" />
-        
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-4">
-          <div>
-            <h2 className="text-[10px] font-black tracking-[0.4em] text-slate-500 uppercase mb-1">{t.dashboard.page.dailyConsumption}</h2>
-            <p className="text-xs text-slate-400 font-medium italic">{t.dashboard.page.dailyConsumptionDesc}</p>
-          </div>
-          
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t.dashboard.page.spending}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-px border-t border-dashed border-red-500/50" />
-              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">{t.dashboard.page.dailyLimit}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="h-[400px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LazyAreaChart data={trendData} margin={{ top: 20, right: 30, left: 0, bottom: 40 }}>
-              <defs>
-                <linearGradient id="colorSpend" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="0" vertical={false} stroke="rgba(255,255,255,0.03)" />
-              <XAxis 
-                dataKey="day" 
-                stroke="#475569" 
-                fontSize={9} 
-                tick={{ fontWeight: '900', letterSpacing: '0.05em' }}
-                axisLine={false}
-                tickLine={false}
-                dy={15}
-                interval="preserveStartEnd"
-                minTickGap={20}
-              />
-              <YAxis 
-                hide 
-                domain={[
-                  0, 
-                  (dataMax: number) => {
-                    const maxSpending = dataMax || 0;
-                    const dailyLimit = stats.dailyAllowance || 0;
-                    // Garantir que o domínio sempre inclui o limite diário com margem
-                    return Math.max(maxSpending * 1.1, dailyLimit * 1.2, 10);
-                  }
-                ]} 
-              />
-              <Tooltip 
-                cursor={{ stroke: '#3b82f6', strokeWidth: 1, strokeDasharray: '5 5' }}
-                contentStyle={{ 
-                  backgroundColor: '#020617', 
-                  border: '1px solid rgba(255,255,255,0.1)', 
-                  borderRadius: '24px',
-                  boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-                  padding: '16px 24px'
-                }}
-                itemStyle={{ color: '#fff', fontWeight: '900', fontSize: '12px', textTransform: 'uppercase' }}
-                formatter={(value: number) => [formatCurrency(value), t.dashboard.page.chartSpent]}
-                labelFormatter={(label) => `${t.dashboard.page.chartDay} ${label}`}
-              />
-              {/* ReferenceLine ANTES do Area para garantir que está visível */}
-              {stats.dailyAllowance > 0 && (
-                <ReferenceLine 
-                  y={stats.dailyAllowance} 
-                  stroke="#ef4444" 
-                  strokeDasharray="5 5" 
-                  strokeOpacity={0.9}
-                  strokeWidth={2}
-                  isFront={true}
-                  label={{ 
-                    position: 'topRight', 
-                    value: `${t.dashboard.page.chartLimit}: ${formatCurrency(stats.dailyAllowance)}`, 
-                    fill: '#ef4444', 
-                    fontSize: 9, 
-                    fontWeight: '900',
-                    textTransform: 'uppercase',
-                    offset: 10
-                  }} 
-                />
-              )}
-              <LazyArea 
-                type="monotone" 
-                dataKey="amount" 
-                stroke="#3b82f6" 
-                strokeWidth={4}
-                fillOpacity={1} 
-                fill="url(#colorSpend)" 
-                animationDuration={2000}
-              />
-            </LazyAreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
 
       {/* Overlay de Transição do Stripe */}
       <AnimatePresence>
@@ -772,7 +1098,7 @@ export default function DashboardPage() {
               <h2 className="text-xl font-black text-white uppercase tracking-[0.3em] animate-pulse">
                 {t.dashboard.loading.processingUpgrade} <span className="text-blue-500">{t.dashboard.page.upgradePro}</span>...
               </h2>
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest italic">
+              <p className="text-slate-500 text-sm font-black uppercase tracking-widest italic">
                 {t.dashboard.loading.preparingEcosystem}
               </p>
             </div>
@@ -780,71 +1106,16 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Modal de Sucesso Pro */}
-      <AnimatePresence>
-        {showUpgradeSuccess && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 md:p-8">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowUpgradeSuccess(false)}
-              className="fixed inset-0 bg-black/80 backdrop-blur-2xl transition-all duration-300"
-              style={{ willChange: 'backdrop-filter' }}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 40 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 40 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="relative w-full max-w-2xl bg-[#020617] border border-amber-500/20 rounded-[64px] p-12 md:p-16 shadow-[0_0_150px_-20px_rgba(245,158,11,0.4)] overflow-hidden text-center z-10"
-            >
-              <button 
-                onClick={() => setShowUpgradeSuccess(false)}
-                className="absolute top-8 right-8 p-3 hover:bg-white/5 rounded-full text-slate-500 transition-colors cursor-pointer"
-              >
-                <X size={24} />
-              </button>
 
-              <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 blur-3xl rounded-full -z-10" />
-              <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/10 blur-3xl rounded-full -z-10" />
-              
-              <motion.div 
-                animate={{ 
-                  rotate: [0, 5, -5, 0],
-                  scale: [1, 1.05, 1]
-                }}
-                transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                className="w-32 h-32 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 rounded-[40px] flex items-center justify-center mx-auto mb-10 shadow-[0_20px_60px_-10px_rgba(245,158,11,0.6)] border border-amber-300/30"
-              >
-                <Crown size={64} className="text-black" />
-              </motion.div>
-
-              <h2 className="text-5xl font-black text-white tracking-tighter mb-6 uppercase">
-                {t.dashboard.page.welcomePro} <br />
-                <span className="text-amber-500 italic">{t.dashboard.page.eliteFinly}</span>
-              </h2>
-              
-              <div className="flex items-center justify-center gap-3 mb-10 text-amber-500/60 bg-amber-500/5 py-2 px-6 rounded-full w-fit mx-auto border border-amber-500/10">
-                <Star size={14} fill="currentColor" />
-                <span className="text-xs font-black uppercase tracking-[0.5em]">{t.dashboard.page.masterZenPro}</span>
-                <Star size={14} fill="currentColor" />
-              </div>
-
-              <p className="text-slate-400 font-medium italic text-xl leading-relaxed mb-12 max-w-md mx-auto">
-                {t.dashboard.page.congratulations}
-              </p>
-
-              <button
-                onClick={() => setShowUpgradeSuccess(false)}
-                className="w-full py-7 bg-amber-500 hover:bg-amber-400 text-black rounded-[32px] font-black uppercase tracking-[0.4em] text-sm transition-all shadow-[0_20px_40px_-10px_rgba(245,158,11,0.4)] active:scale-[0.98] cursor-pointer"
-              >
-                {t.dashboard.page.explorePro}
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <TransactionAddModal
+        isOpen={showAddTransactionModal}
+        onClose={() => setShowAddTransactionModal(false)}
+        onSuccess={() => {
+          setToast({ show: true, message: t.dashboard.transactions.success, type: 'success' });
+          mutateSnapshot();
+        }}
+        categories={collections?.categories ?? []}
+      />
 
       <PricingModal 
         isVisible={showPaywall} 

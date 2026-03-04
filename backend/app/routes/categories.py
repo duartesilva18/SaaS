@@ -12,6 +12,57 @@ from datetime import date
 
 router = APIRouter(prefix='/categories', tags=['categories'])
 
+# Categorias Salário e Despesas gerais (e equivalentes PT/EN/FR) — não podem ser editadas nem apagadas
+PROTECTED_SYSTEM_CATEGORY_NAMES = {
+    'Salário', 'Salary', 'Salaire',
+    'Despesas gerais', 'General expenses', "Dépenses générales",
+}
+
+
+def _is_protected_system_category(category_name: str) -> bool:
+    return (category_name or '').strip() in PROTECTED_SYSTEM_CATEGORY_NAMES
+
+
+@router.get('/suggestions')
+async def get_category_suggestions(
+    request: Request,
+    description: str = "",
+    tipo: str = "expense",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retorna scoring detalhado por categoria para debug/UX (motor de categorização)."""
+    workspace = getattr(request.state, 'workspace', None) or db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace not found')
+    categories = db.query(models.Category).filter(models.Category.workspace_id == workspace.id, models.Category.type == tipo).all()
+    if not categories:
+        return {"scores": [], "inference": None}
+    from ..core.categorization_engine import (
+        canonicalize,
+        extract_tokens,
+        apply_deterministic_rules,
+        lookup_merchant_registry,
+        compute_category_scores_from_tokens,
+        infer_category,
+    )
+    from ..core.config import settings
+    canonical = canonicalize(description)
+    tokens = extract_tokens(canonical, n=3)
+    merchant_match = lookup_merchant_registry(description, tipo, db, models)
+    rule_cat = apply_deterministic_rules(description, tipo)
+    category_scores, _ = compute_category_scores_from_tokens(tokens, workspace.id, tipo, db, models)
+    cat_id, source, needs_review, conf, reason, explain = infer_category(description, workspace.id, tipo, categories, db, models, settings, use_gemini=False)
+    return {
+        "canonical": canonical,
+        "tokens": tokens,
+        "merchant_registry": {"category": merchant_match[0], "alias": merchant_match[1]} if merchant_match else None,
+        "deterministic_rule": rule_cat,
+        "token_scores": {str(k): round(v, 4) for k, v in category_scores.items()},
+        "inference": {"category_id": str(cat_id) if cat_id else None, "source": source, "needs_review": needs_review, "confidence": round(conf or 0, 4), "reason": reason, "explain": explain},
+    }
+
+
 @router.get('/', response_model=List[schemas.CategoryResponse])
 async def get_categories(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     # Usar workspace cacheado se disponível
@@ -44,6 +95,7 @@ async def get_category_stats(request: Request, db: Session = Depends(get_db), cu
         func.abs(models.Transaction.amount_cents) != 1  # Filtrar transações de seed (1 cêntimo)
     ).all()
     
+    # Despesas têm amount_cents negativo; total_monthly_cents será negativo
     total_monthly_cents = sum(t.amount_cents for t in transactions)
     
     stats = {}
@@ -62,18 +114,22 @@ async def get_category_stats(request: Request, db: Session = Depends(get_db), cu
         stats[cat_id]['count'] += 1
     
     result = []
+    total_abs = abs(total_monthly_cents)
     for cat_id, data in stats.items():
-        percentage = (data['total_spent_cents'] / total_monthly_cents * 100) if total_monthly_cents > 0 else 0
+        percentage = (abs(data['total_spent_cents']) / total_abs * 100) if total_abs > 0 else 0
         result.append(schemas.CategoryStats(
             **data,
             percentage=round(percentage, 1)
         ))
     
-    result.sort(key=lambda x: x.total_spent_cents, reverse=True)
+    # Ordenar por maior gasto primeiro (total_spent_cents mais negativo = mais gasto)
+    result.sort(key=lambda x: x.total_spent_cents)
     return result
 
 @router.post('/', response_model=schemas.CategoryResponse)
 async def create_category(request: Request, category_in: schemas.CategoryBase, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
     workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail='Workspace not found')
@@ -110,7 +166,11 @@ async def create_category(request: Request, category_in: schemas.CategoryBase, d
 
 @router.patch('/{category_id}', response_model=schemas.CategoryResponse)
 async def update_category(request: Request, category_id: UUID, category_in: schemas.CategoryUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
     workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace não encontrado')
     db_category = db.query(models.Category).filter(
         models.Category.id == category_id,
         models.Category.workspace_id == workspace.id
@@ -118,7 +178,8 @@ async def update_category(request: Request, category_id: UUID, category_in: sche
     
     if not db_category:
         raise HTTPException(status_code=404, detail='Categoria não encontrada')
-    
+    if _is_protected_system_category(db_category.name):
+        raise HTTPException(status_code=400, detail='Não é possível editar a categoria Salário ou Despesas gerais.')
     update_data = category_in.dict(exclude_unset=True)
     
     # Bloquear alteração de vault_type para investment/emergency se já existir
@@ -153,7 +214,11 @@ async def update_category(request: Request, category_id: UUID, category_in: sche
 
 @router.delete('/{category_id}')
 async def delete_category(request: Request, category_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
     workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail='Workspace não encontrado')
     db_category = db.query(models.Category).filter(
         models.Category.id == category_id,
         models.Category.workspace_id == workspace.id
@@ -161,13 +226,15 @@ async def delete_category(request: Request, category_id: UUID, db: Session = Dep
     
     if not db_category:
         raise HTTPException(status_code=404, detail='Categoria não encontrada')
-    
-    # Proteção especial: Só bloqueia se for categoria padrão OU se for uma das categorias de cofre principais
+    if _is_protected_system_category(db_category.name):
+        raise HTTPException(status_code=400, detail='Não é possível eliminar a categoria Salário ou Despesas gerais.')
+    # Proteção especial: categorias de Cofre principais (novas e antigas para compatibilidade)
+    vault_investment_names = ['INVESTIMENTO', 'INVESTIMENTOS', 'COFRE INVESTIMENTOS', 'COFRE INVESTIMENTO']
+    vault_emergency_names = ['FUNDO DE EMERGÊNCIA', 'FUNDO DE EMERGENCIA', 'COFRE EMERGÊNCIA', 'COFRE EMERGENCIA']
     is_protected_name = (
-        (db_category.vault_type == 'investment' and db_category.name.upper() in ['INVESTIMENTO', 'INVESTIMENTOS']) or
-        (db_category.vault_type == 'emergency' and db_category.name.upper() in ['FUNDO DE EMERGÊNCIA', 'FUNDO DE EMERGENCIA'])
+        (db_category.vault_type == 'investment' and db_category.name.upper() in vault_investment_names) or
+        (db_category.vault_type == 'emergency' and db_category.name.upper() in vault_emergency_names)
     )
-    
     if db_category.is_default or is_protected_name:
         raise HTTPException(status_code=400, detail='Não é possível eliminar as categorias de Cofre principais ou categorias padrão')
     
@@ -184,6 +251,8 @@ async def delete_category(request: Request, category_id: UUID, db: Session = Dep
 
 @router.post('/bulk-delete')
 async def bulk_delete_categories(request: Request, category_ids: List[UUID], db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user.has_effective_pro():
+        raise HTTPException(status_code=403, detail="Funcionalidade disponível apenas para utilizadores Pro.")
     workspace = db.query(models.Workspace).filter(models.Workspace.owner_id == current_user.id).first()
     if not workspace:
         raise HTTPException(status_code=404, detail='Workspace not found')
@@ -199,13 +268,16 @@ async def bulk_delete_categories(request: Request, category_ids: List[UUID], db:
     deleted_count = 0
     errors = []
     
+    vault_investment_names = ['INVESTIMENTO', 'INVESTIMENTOS', 'COFRE INVESTIMENTOS', 'COFRE INVESTIMENTO']
+    vault_emergency_names = ['FUNDO DE EMERGÊNCIA', 'FUNDO DE EMERGENCIA', 'COFRE EMERGÊNCIA', 'COFRE EMERGENCIA']
     for cat in categories:
-        # Mesmas proteções do delete individual
+        if _is_protected_system_category(cat.name):
+            errors.append(f"Não é possível eliminar '{cat.name}' (categoria protegida)")
+            continue
         is_protected_name = (
-            (cat.vault_type == 'investment' and cat.name.upper() in ['INVESTIMENTO', 'INVESTIMENTOS']) or
-            (cat.vault_type == 'emergency' and cat.name.upper() in ['FUNDO DE EMERGÊNCIA', 'FUNDO DE EMERGENCIA'])
+            (cat.vault_type == 'investment' and cat.name.upper() in vault_investment_names) or
+            (cat.vault_type == 'emergency' and cat.name.upper() in vault_emergency_names)
         )
-        
         if cat.is_default or is_protected_name:
             errors.append(f"Não é possível eliminar '{cat.name}' (categoria protegida)")
             continue

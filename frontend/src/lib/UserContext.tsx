@@ -2,6 +2,7 @@
 
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import api from './api';
+import { hasProAccess } from './utils';
 
 interface User {
   id: string;
@@ -13,12 +14,15 @@ interface User {
   gender?: string;
   is_active: boolean;
   is_admin: boolean;
+  is_affiliate?: boolean;
+  affiliate_requested_at?: string;
   is_email_verified: boolean;
   is_onboarded: boolean;
   marketing_opt_in: boolean;
   subscription_status?: string;
   terms_accepted?: boolean;
   terms_accepted_at?: string;
+  onboarding_spotlight_seen?: boolean;
   created_at: string;
 }
 
@@ -63,6 +67,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchUser = useCallback(async () => {
+    setLoading(true);
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) {
       setUser(null);
@@ -70,7 +75,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const res = await api.get('/auth/me');
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+      const res = await api.get('/auth/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setUser(res.data);
     } catch (err) {
       // Token inválido ou expirado
@@ -86,12 +94,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
-  // Considera Pro se estiver ativo, em trial, ou marcado para cancelar no fim do período
-  // Status 'past_due' e 'unpaid' não são considerados Pro (acesso bloqueado)
-  // 'cancel_at_period_end' mantém acesso até ao fim do período pago
-  const isPro = user?.subscription_status === 'active' 
-    || user?.subscription_status === 'trialing' 
-    || user?.subscription_status === 'cancel_at_period_end';
+  // Considera Pro se estiver ativo, em trial, cancel_at_period_end ou past_due (período de graça)
+  // past_due = pagamento falhou mas Stripe ainda está a tentar cobrar – mantém acesso para atualizar o método de pagamento
+  const isPro = hasProAccess(user) || user?.subscription_status === 'past_due';
 
   return (
     <UserContext.Provider value={{ user, loading, refreshUser: fetchUser, logout, isPro }}>

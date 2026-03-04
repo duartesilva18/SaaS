@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { LanguageProvider } from "@/lib/LanguageContext";
 import { UserProvider } from "@/lib/UserContext";
+import { InstallPromptProvider } from "@/lib/InstallPromptContext";
+import { ThemeProvider } from "@/lib/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import CookieBanner from "@/components/CookieBanner";
 
@@ -16,16 +18,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const plusJakarta = Plus_Jakarta_Sans({
+  variable: "--font-brand",
+  subsets: ["latin"],
+});
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://app.finlybot.com';
+
 export const metadata: Metadata = {
   title: {
     default: "Finly - Gestão Financeira Pessoal | Telegram Bot",
     template: "%s | Finly"
   },
-  description: "Registe despesas no Telegram em 3 segundos. O Finly elimina a confusão das contas e ajuda-te a alcançar a paz financeira. Gráficos inteligentes, categorização automática e insights de IA.",
+  description: "Finly: regista despesas no Telegram em 3 segundos. Elimina a confusão das contas e ajuda-te a alcançar a paz financeira. Gráficos inteligentes, categorização automática e insights de IA. App finanças Portugal.",
   keywords: [
+    "Finly",
     "gestão financeira",
     "controlo de despesas",
     "telegram bot",
+    "telegram bot finanças",
     "finanças pessoais",
     "orçamento",
     "poupança",
@@ -41,21 +52,33 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://finly.pt'),
+  metadataBase: new URL(siteUrl),
+  applicationName: "Finly",
+  // Favicon em URL absoluta para evitar cache/redirecionamentos; browsers guardam ícone muito tempo
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon.ico', sizes: '32x32', type: 'image/x-icon' },
+    ],
+    apple: '/images/logo/logo-semfundo.png',
+    shortcut: '/favicon.ico',
+  },
   alternates: {
     canonical: '/',
     languages: {
-      'pt-PT': '/pt',
-      'en': '/en',
+      'pt-PT': '/',
+      'en': '/',
+      'fr': '/',
     },
   },
   openGraph: {
     type: 'website',
     locale: 'pt_PT',
+    alternateLocale: ['en_US', 'fr_FR'],
     url: '/',
     siteName: 'Finly',
     title: 'Finly - Gestão Financeira Pessoal | Telegram Bot',
-    description: 'Registe despesas no Telegram em 3 segundos. O Finly elimina a confusão das contas e ajuda-te a alcançar a paz financeira.',
+    description: 'Finly: regista despesas no Telegram em 3 segundos. Elimina a confusão das contas e ajuda-te a alcançar a paz financeira.',
     images: [
       {
         url: '/og-image.png',
@@ -67,8 +90,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Finly - Gestão Financeira Pessoal',
-    description: 'Registe despesas no Telegram em 3 segundos. O Finly elimina a confusão das contas.',
+    title: 'Finly - Gestão Financeira Pessoal | Telegram Bot',
+    description: 'Finly: regista despesas no Telegram em 3 segundos. Elimina a confusão das contas e paz financeira.',
     images: ['/og-image.png'],
     creator: '@finlypt',
   },
@@ -95,7 +118,8 @@ export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
-  themeColor: "#3b82f6",
+  // Barra de estado no topo (PWA/telemóvel): escuro para combinar com a app em vez de azul
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({
@@ -103,32 +127,73 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const organizationJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'Finly',
+    url: siteUrl,
+    logo: `${siteUrl}/images/logo/logo-semfundo.png`,
+    description: 'Finly - Gestão financeira pessoal e bot Telegram para registar despesas em segundos.',
+    sameAs: [
+      'https://t.me/FinanZenApp_bot',
+      ...(process.env.NEXT_PUBLIC_TWITTER_URL ? [process.env.NEXT_PUBLIC_TWITTER_URL] : []),
+    ].filter(Boolean),
+  };
+
   return (
     <html lang="pt-PT" suppressHydrationWarning>
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#3b82f6" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${plusJakarta.variable} antialiased overflow-x-hidden`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
         <ErrorBoundary>
-          <LanguageProvider>
-            <UserProvider>
-              {children}
-              <CookieBanner />
-            </UserProvider>
-          </LanguageProvider>
+          <ThemeProvider>
+            <InstallPromptProvider>
+              <LanguageProvider>
+                <UserProvider>
+                  {children}
+                  <CookieBanner />
+                </UserProvider>
+              </LanguageProvider>
+            </InstallPromptProvider>
+          </ThemeProvider>
         </ErrorBoundary>
         <script
           dangerouslySetInnerHTML={{
             __html: `
+              // Handler para ChunkLoadError - recarrega automaticamente
+              window.addEventListener('error', (event) => {
+                if (event.message && event.message.includes('ChunkLoadError')) {
+                  console.warn('ChunkLoadError detectado, a recarregar página...');
+                  // Limpar cache e recarregar
+                  if ('caches' in window) {
+                    caches.keys().then(names => {
+                      names.forEach(name => caches.delete(name));
+                    });
+                  }
+                  window.location.reload();
+                }
+              });
+              
+              // Handler para erros de importação de módulos
+              window.addEventListener('unhandledrejection', (event) => {
+                if (event.reason && event.reason.message && event.reason.message.includes('Failed to fetch dynamically imported module')) {
+                  console.warn('Erro de importação dinâmica detectado, a recarregar página...');
+                  if ('caches' in window) {
+                    caches.keys().then(names => {
+                      names.forEach(name => caches.delete(name));
+                    });
+                  }
+                  window.location.reload();
+                }
+              });
+              
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js')
-                    .then((reg) => console.log('Service Worker registado:', reg))
-                    .catch((err) => console.log('Erro ao registar Service Worker:', err));
+                  navigator.serviceWorker.register('/sw.js').catch(() => {});
                 });
               }
             `,

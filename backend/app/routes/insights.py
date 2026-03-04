@@ -147,7 +147,7 @@ async def get_zen_insights(
                 ),
                 icon='activity'
             ))
-        else:
+        elif saving_rate < -1:  # Apenas mostrar défice crítico se for menor que -1%
             health_score -= 45 # Penalização severa para défice
             insights.append(schemas.InsightItem(
                 type='danger',
@@ -158,6 +158,7 @@ async def get_zen_insights(
                 ),
                 icon='alert-circle'
             ))
+        # Se saving_rate está entre -1% e 0%, não mostrar alerta de défice crítico (equilíbrio)
     elif this_expenses > 0:
         health_score -= 40
         insights.append(schemas.InsightItem(
@@ -244,7 +245,7 @@ async def get_zen_insights(
     # 4. Detetção de Anomalias (Spikes)
     if this_expenses > 0 and len(this_month_transactions) > 0:
         avg_trans = this_expenses / len(this_month_transactions)
-        big_spenders = [t for t in this_month_transactions if (t.amount_cents/100) > avg_trans * 4 and t.amount_cents > 10000]
+        big_spenders = [t for t in this_month_transactions if t.amount_cents < 0 and abs(t.amount_cents/100) > avg_trans * 4 and abs(t.amount_cents) > 10000]
         if big_spenders:
             health_score -= 20 # Penalização pesada para impulsividade
             insights.append(schemas.InsightItem(
@@ -258,7 +259,7 @@ async def get_zen_insights(
             ))
 
     # 5. Pequenos Gastos (Ghost Spending)
-    small_expenses = [t for t in this_month_transactions if 0 < t.amount_cents < 1000]
+    small_expenses = [t for t in this_month_transactions if t.amount_cents < 0 and abs(t.amount_cents) < 1000]
     if len(small_expenses) > 6: # Limite de tolerância menor (era 8)
         health_score -= 15
         insights.append(schemas.InsightItem(
@@ -370,17 +371,19 @@ async def get_zen_insights(
     for t in historical_transactions:
         month_key = t.transaction_date.strftime('%Y-%m')
         cat = cat_map.get(t.category_id)
-        amount = abs(t.amount_cents / 100)
+        amount_abs = abs(t.amount_cents / 100)
+        amount_signed = t.amount_cents / 100
         if cat:
             if cat.type == 'income':
-                monthly_data[month_key]['income'] += amount
+                monthly_data[month_key]['income'] += amount_abs
             elif cat.vault_type != 'none':
-                monthly_data[month_key]['vault'] += amount
+                # Vault: positivo = depósito, negativo = resgate (usar valor com sinal)
+                monthly_data[month_key]['vault'] += amount_signed
             else:
-                monthly_data[month_key]['expenses'] += amount
-                monthly_data[month_key]['by_category'][cat.name] += amount
+                monthly_data[month_key]['expenses'] += amount_abs
+                monthly_data[month_key]['by_category'][cat.name] += amount_abs
         else:
-            monthly_data[month_key]['expenses'] += amount
+            monthly_data[month_key]['expenses'] += amount_abs
         monthly_data[month_key]['count'] += 1
     
     # Calcular médias históricas com média móvel ponderada (meses recentes têm mais peso)
@@ -506,8 +509,19 @@ async def get_zen_insights(
             next_month_projected_expenses *= 0.97
         next_month_projected_expenses += (expense_volatility * 0.15)
         
-        categories_at_risk = []
-        # Calcular médias históricas por categoria (se ainda não calculado)
+        # Categorias em risco: MÊS ATUAL (gasto real) + PROJEÇÃO (próximo mês)
+        categories_at_risk_dict = {}  # cat_name -> (risk_level, amount, limit)
+        
+        # 1. Verificar gasto REAL deste mês (>= 80% do limite)
+        for cat in categories:
+            if cat.type == 'expense' and cat.monthly_limit_cents > 0:
+                limit = cat.monthly_limit_cents / 100
+                actual_spent = this_expenses_by_cat.get(cat.name, 0)
+                if limit > 0 and actual_spent >= limit * 0.8:  # 80% do limite
+                    risk_level = (actual_spent / limit) * 100
+                    categories_at_risk_dict[cat.name] = (risk_level, actual_spent, limit)
+        
+        # 2. Calcular médias históricas por categoria (para projeção)
         if not category_monthly_avg:
             for month_key in sorted_months:
                 for cat_name, amount in monthly_data[month_key]['by_category'].items():
@@ -518,26 +532,22 @@ async def get_zen_insights(
             if category_monthly_count[cat_name] > 0:
                 category_monthly_avg[cat_name] /= category_monthly_count[cat_name]
         
+        # 3. Adicionar riscos por PROJEÇÃO do próximo mês (se ainda não em risco ou projeção pior)
         for cat in categories:
             if cat.type == 'expense' and cat.monthly_limit_cents > 0:
                 limit = cat.monthly_limit_cents / 100
                 
-                # Usar média histórica da categoria se disponível, senão usar proporção atual
                 if cat.name in category_monthly_avg:
                     cat_historical_avg = category_monthly_avg[cat.name]
-                    # Calcular tendência da categoria
                     cat_values = [monthly_data[m]['by_category'].get(cat.name, 0) for m in sorted_months]
                     cat_trend_slope = calculate_trend(cat_values)
                     cat_volatility = calculate_volatility(cat_values)
-                    
-                    # Projeção da categoria = média histórica + tendência + volatilidade
                     projected_cat_expense = cat_historical_avg
                     if cat_historical_avg > 0:
                         trend_factor_cat = (cat_trend_slope * 1) / cat_historical_avg
                         projected_cat_expense = cat_historical_avg * (1 + trend_factor_cat)
-                    projected_cat_expense += (cat_volatility * 0.2)  # Margem de segurança de 20%
+                    projected_cat_expense += (cat_volatility * 0.2)
                 else:
-                    # Fallback: usar proporção atual
                     cat_avg = this_expenses_by_cat.get(cat.name, 0)
                     if cat_avg > 0:
                         cat_ratio = cat_avg / this_expenses if this_expenses > 0 else 0
@@ -545,9 +555,17 @@ async def get_zen_insights(
                     else:
                         continue
                 
-                if projected_cat_expense > limit * 0.85:  # Reduzido de 0.9 para 0.85 para detetar mais cedo
-                    risk_level = (projected_cat_expense / limit) * 100 if limit > 0 else 0
-                    categories_at_risk.append((cat.name, risk_level, projected_cat_expense, limit))
+                if projected_cat_expense >= limit * 0.85:  # Projeção >= 85% do limite
+                    proj_risk = (projected_cat_expense / limit) * 100 if limit > 0 else 0
+                    existing = categories_at_risk_dict.get(cat.name)
+                    # Prefer ACTUAL (mês corrente) sobre projeção: mostrar gasto real, não forecast
+                    if existing is None:
+                        categories_at_risk_dict[cat.name] = (proj_risk, projected_cat_expense, limit)
+        
+        categories_at_risk = sorted(
+            [(name, r[0], r[1], r[2]) for name, r in categories_at_risk_dict.items()],
+            key=lambda x: x[1], reverse=True  # Maior risco primeiro
+        )
         
         # Adicionar insights preditivos
         if projected_balance < 0 and len(insights) < 3:
@@ -743,7 +761,7 @@ async def get_zen_insights(
         ),
         schemas.InsightItem(
             type='info',
-            title=tr('🚀 EVOLUÇÃO', '🚀 EVOLUTION'),
+            title=tr('EVOLUÇÃO', 'EVOLUTION'),
             message=tr(
                 'O teu futuro financeiro é construído com as decisões que tomas hoje.',
                 'Your financial future is built by the decisions you make today.'
@@ -836,7 +854,7 @@ async def get_zen_insights(
             'projected_monthly_expenses': avg_monthly_expenses,
             'months_ahead': months_ahead,
             'categories_at_risk': [
-                {'name': c[0], 'risk_percent': c[1], 'projected': c[2], 'limit': c[3]} 
+                {'name': c[0], 'category_name': c[0], 'risk_percent': c[1], 'risk_level': f'{c[1]:.0f}%', 'projected': c[2], 'limit': c[3]} 
                 for c in categories_at_risk
             ],
             'confidence': avg_confidence,
@@ -868,8 +886,8 @@ async def get_zen_insights(
         )
     elif health_score > 90:
         summary = tr(
-            '✨ EXCELENTE: Estás em plena harmonia e domínio do teu capital.',
-            '✨ EXCELLENT: You are in full harmony and mastery of your capital.'
+            'EXCELENTE: Estás em plena harmonia e domínio do teu capital.',
+            'EXCELLENT: You are in full harmony and mastery of your capital.'
         )
     elif health_score > 75:
         summary = tr(
@@ -910,14 +928,14 @@ async def get_analytics_composite(
     zen_insights = await get_zen_insights(request, db, current_user)
     
     # Filtrar transações de seed (1 cêntimo) diretamente na query SQL - muito mais rápido
-    # Usar eager loading para evitar N+1 queries
+    # Usar eager loading para evitar N+1 queries; limitar a 2000 transações para performance
     from sqlalchemy.orm import joinedload
     transactions = db.query(models.Transaction).options(
         joinedload(models.Transaction.category)
     ).filter(
         models.Transaction.workspace_id == workspace.id,
         func.abs(models.Transaction.amount_cents) != 1
-    ).order_by(models.Transaction.transaction_date.desc()).all()
+    ).order_by(models.Transaction.transaction_date.desc()).limit(2000).all()
     
     categories = db.query(models.Category).filter(
         models.Category.workspace_id == workspace.id

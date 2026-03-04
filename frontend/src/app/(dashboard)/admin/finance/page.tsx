@@ -16,10 +16,13 @@ import api from '@/lib/api';
 import { useTranslation } from '@/lib/LanguageContext';
 import { useUser } from '@/lib/UserContext';
 import Toast from '@/components/Toast';
+import PageLoading from '@/components/PageLoading';
+import { useRouter } from 'next/navigation';
 
 export default function AdminFinancePage() {
   const { t, formatCurrency } = useTranslation();
   const { user: currentUser } = useUser();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [financeStats, setFinanceStats] = useState<any>(null);
   const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' as 'success' | 'error' });
@@ -38,23 +41,22 @@ export default function AdminFinancePage() {
       setFinanceStats(res.data);
     } catch (err) {
       console.error('Erro ao carregar dados financeiros:', err);
-      setToast({ isVisible: true, message: 'Erro ao aceder aos dados da Stripe.', type: 'error' });
+      setToast({ isVisible: true, message: t.dashboard.admin.finance.loadError, type: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (currentUser && !currentUser.is_admin) {
+      router.push('/dashboard');
+      return;
+    }
     fetchData();
-  }, []);
+  }, [currentUser]);
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-        <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 animate-pulse">Consultando Tesouraria Global...</p>
-      </div>
-    );
+    return <PageLoading message="Consultando Tesouraria Global..." />;
   }
 
   return (
@@ -79,7 +81,7 @@ export default function AdminFinancePage() {
       {/* Main Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* MRR Card */}
-        <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 backdrop-blur-xl border border-blue-500/20 p-8 rounded-[40px] relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 backdrop-blur-xl border border-blue-500/20 p-8 rounded-[32px] relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-6 text-blue-500/20">
             <TrendingUp size={80} />
           </div>
@@ -96,7 +98,7 @@ export default function AdminFinancePage() {
         </div>
 
         {/* Total Revenue Card */}
-        <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-8 rounded-[40px] relative overflow-hidden group">
+        <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-8 rounded-[32px] relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-6 text-slate-800">
             <DollarSign size={80} />
           </div>
@@ -112,7 +114,7 @@ export default function AdminFinancePage() {
         </div>
 
         {/* Active Subscriptions Card */}
-        <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-8 rounded-[40px] relative overflow-hidden group">
+        <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-8 rounded-[32px] relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-6 text-slate-800">
             <Users size={80} />
           </div>
@@ -129,7 +131,7 @@ export default function AdminFinancePage() {
       </div>
 
       {/* Monthly Revenue Chart */}
-      <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10">
+      <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[32px] p-8 md:p-10">
         <div className="flex items-center gap-4 mb-10">
           <div className="w-12 h-12 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center">
             <TrendingUp size={24} />
@@ -147,7 +149,7 @@ export default function AdminFinancePage() {
                 const revenue = item.revenue_cents / 100;
                 // Calcular média
                 const allRevenues = financeStats.monthly_revenue.map((i: { revenue_cents: number }) => i.revenue_cents / 100);
-                const average = allRevenues.reduce((a, b) => a + b, 0) / allRevenues.length;
+                const average = allRevenues.reduce((a: number, b: number) => a + b, 0) / allRevenues.length;
                 return {
                   ...item,
                   revenue,
@@ -181,9 +183,10 @@ export default function AdminFinancePage() {
                     borderRadius: '12px',
                     color: '#fff'
                   }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'average') return [formatEUR(value), 'Média'];
-                    return [formatEUR(value), 'Receita'];
+                  formatter={(value: number | undefined, name: string | undefined) => {
+                    if (value === undefined) return ['', name || ''];
+                    if (name === 'average') return [formatEUR(value), t.dashboard.admin.finance.average];
+                    return [formatEUR(value), t.dashboard.admin.finance.revenue];
                   }}
                 />
                 {/* Área com gradiente (shadow) */}
@@ -210,14 +213,14 @@ export default function AdminFinancePage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <BarChart3 size={48} className="text-slate-700 mb-4 opacity-20" />
-            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Sem dados de faturamento</p>
+            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">{t.dashboard.admin.finance.noBillingData}</p>
           </div>
         )}
       </section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Pending Invoices */}
-        <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10">
+        <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[32px] p-8 md:p-10">
           <div className="flex items-center gap-4 mb-10">
             <div className="w-12 h-12 bg-amber-500/10 text-amber-500 rounded-2xl flex items-center justify-center">
               <Clock size={24} />
@@ -230,17 +233,17 @@ export default function AdminFinancePage() {
 
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <div className="text-4xl font-black text-white mb-2">{financeStats?.pending_invoices_count || 0}</div>
-            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">Faturas em Aberto</p>
+            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">{t.dashboard.admin.finance.pendingInvoices}</p>
             {financeStats?.pending_invoices_count > 0 && (
               <div className="mt-6 flex items-center gap-2 text-amber-500 bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/20 text-[10px] font-black uppercase tracking-widest">
-                <AlertCircle size={14} /> Requer Atenção
+                <AlertCircle size={14} /> {t.dashboard.admin.finance.requiresAttention}
               </div>
             )}
           </div>
         </section>
 
         {/* System Health */}
-        <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[48px] p-8 md:p-10">
+        <section className="bg-slate-900/30 backdrop-blur-sm border border-white/5 rounded-[32px] p-8 md:p-10">
           <div className="flex items-center gap-4 mb-10">
             <div className="w-12 h-12 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center">
               <ShieldCheck size={24} />
@@ -253,9 +256,9 @@ export default function AdminFinancePage() {
 
           <div className="space-y-6">
             {[
-              { label: 'Stripe API Connection', status: 'Operacional' },
-              { label: 'Webhook Endpoints', status: 'Ativo' },
-              { label: 'Customer Portal', status: 'Operacional' }
+              { label: 'Stripe API Connection', status: t.dashboard.admin.finance.statusOperational },
+              { label: 'Webhook Endpoints', status: t.dashboard.admin.finance.statusActive },
+              { label: 'Customer Portal', status: t.dashboard.admin.finance.statusOperational }
             ].map((item, i) => (
               <div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.label}</span>

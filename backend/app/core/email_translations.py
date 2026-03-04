@@ -8,7 +8,7 @@ EMAIL_TRANSLATIONS = {
             'title': 'O seu futuro começa agora.',
             'welcome': 'Bem-vindo à elite financeira. Falta apenas validar o seu acesso para desbloquear o controlo total sobre o seu património.',
             'button': 'Ativar Conta Premium',
-            'security_notice': 'Este link é pessoal, intransmissível e expira em 24 horas.',
+            'security_notice': 'Este link é pessoal, intransmissível e expira em 30 minutos. Se não verificares a tempo, a conta será apagada.',
             'footer': 'Finly Portugal © 2026 <br> High-End Financial Management'
         },
         'password_reset': {
@@ -19,6 +19,14 @@ EMAIL_TRANSLATIONS = {
             'security_notice': 'Este código é válido por apenas 15 minutos e destina-se apenas ao destinatário deste email.',
             'footer': 'Finly Portugal © 2026 <br> Segurança Bancária Certificada'
         },
+        'register_verify': {
+            'subject': 'Finly - Código de Verificação do Registo',
+            'title': 'Confirma o teu registo',
+            'message': 'Estás a um passo de ativar a tua conta. Utiliza o código abaixo para concluir o registo:',
+            'code_label': 'Código de Verificação',
+            'security_notice': 'Este código é válido por 15 minutos. Se não pediste o registo, ignora este email.',
+            'footer': 'Finly Portugal © 2026 <br> Bem-vindo à Finly'
+        },
         'marketing_footer': 'Recebeu este email porque aceitou as comunicações de marketing do Finly.'
     },
     'en': {
@@ -27,7 +35,7 @@ EMAIL_TRANSLATIONS = {
             'title': 'Your future starts now.',
             'welcome': 'Welcome to the financial elite. You just need to validate your access to unlock total control over your assets.',
             'button': 'Activate Premium Account',
-            'security_notice': 'This link is personal, non-transferable and expires in 24 hours.',
+            'security_notice': 'This link is personal, non-transferable and expires in 30 minutes. If you do not verify in time, the account will be deleted.',
             'footer': 'Finly Portugal © 2026 <br> High-End Financial Management'
         },
         'password_reset': {
@@ -37,6 +45,14 @@ EMAIL_TRANSLATIONS = {
             'code_label': 'Security Code',
             'security_notice': 'This code is valid for only 15 minutes and is intended only for the recipient of this email.',
             'footer': 'Finly Portugal © 2026 <br> Bank-Level Security Certified'
+        },
+        'register_verify': {
+            'subject': 'Finly - Registration Verification Code',
+            'title': 'Confirm your registration',
+            'message': 'You are one step away from activating your account. Use the code below to complete registration:',
+            'code_label': 'Verification Code',
+            'security_notice': 'This code is valid for 15 minutes. If you did not request registration, ignore this email.',
+            'footer': 'Finly Portugal © 2026 <br> Welcome to Finly'
         },
         'marketing_footer': 'You received this email because you accepted marketing communications from Finly.'
     }
